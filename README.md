@@ -132,8 +132,11 @@ Build the optimization engine as a standalone CLI tool:
 
 5. **Configure environment variables**:
    ```bash
-   cp .env.example .env
-   # Edit .env and add your LLM API key
+   # Windows PowerShell:
+   Copy-Item .env.example .env
+   
+   # Or use any text editor to copy .env.example to .env
+   # Then edit .env and add your LLM API key
    ```
 
 6. **Install frontend dependencies** (when frontend is implemented):
