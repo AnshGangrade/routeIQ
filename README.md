@@ -221,7 +221,8 @@ Academic capstone project. All source code and documentation developed by the Ro
 **Milestone 0**: Project foundation established ✅  
 **Milestone 1**: Instance generation and distance calculations ✅  
 **Milestone 2**: Baseline routing algorithms ✅  
-**Milestone 3**: Heuristic scoring harness ✅
+**Milestone 3**: Heuristic scoring harness ✅  
+**Milestone 4**: Candidate validation and controlled execution ✅
 
 ### Completed Features
 - Synthetic delivery instance generator with reproducible seeds
@@ -234,7 +235,10 @@ Academic capstone project. All source code and documentation developed by the Ro
 - **Heuristic scoring contract** (HeuristicContext → HeuristicResult)
 - **RouteHarness** for trusted route construction
 - **Built-in nearest_distance_heuristic** (reproduces NN exactly)
-- Comprehensive test suite (123 tests, 95% coverage)
+- **Static AST validation** (allowlist-based Python subset)
+- **Controlled execution** with restricted namespace and timeout
+- **Candidate adapter** for integrating validated code with harness
+- Comprehensive test suite (167 tests, 91% coverage)
 
 ### Quick Examples
 
@@ -296,6 +300,36 @@ print(f"Route: {result.route}")
 print(f"Distance: {result.total_distance:.2f}")
 ```
 
+**Candidate Validation & Execution:**
+```python
+from engine.sandbox import (
+    CandidateHeuristic, HeuristicValidator,
+    create_scoring_function
+)
+
+# Define candidate as string
+code = '''
+def score_candidates(context):
+    scores = {}
+    for stop in context.candidate_stops:
+        scores[stop] = context.distance_matrix[context.current_location, stop]
+    return {"scores": scores}
+'''
+
+# Validate candidate
+candidate = CandidateHeuristic(source_code=code)
+validator = HeuristicValidator()
+validation = validator.validate(candidate)
+
+if validation.is_valid:
+    # Create scoring function and use with harness
+    scorer = create_scoring_function(code, timeout=5.0)
+    result = harness.build_route(scorer, dist_matrix, n_stops=10)
+    print(f"Route: {result.route}")
+else:
+    print(f"Validation failed: {validation.errors}")
+```
+
 **Full Examples:**
 ```bash
 # Baseline algorithms
@@ -303,6 +337,9 @@ $env:PYTHONPATH="D:\routeIQ" ; py examples/baseline_routing.py
 
 # Heuristic harness
 $env:PYTHONPATH="D:\routeIQ" ; py examples/heuristic_harness.py
+
+# Candidate validation
+$env:PYTHONPATH="D:\routeIQ" ; py examples/candidate_validation.py
 ```
 
 **Next Milestone**: LLM client with mock/replay mode
