@@ -220,7 +220,8 @@ Academic capstone project. All source code and documentation developed by the Ro
 
 **Milestone 0**: Project foundation established ✅  
 **Milestone 1**: Instance generation and distance calculations ✅  
-**Milestone 2**: Baseline routing algorithms ✅
+**Milestone 2**: Baseline routing algorithms ✅  
+**Milestone 3**: Heuristic scoring harness ✅
 
 ### Completed Features
 - Synthetic delivery instance generator with reproducible seeds
@@ -230,7 +231,10 @@ Academic capstone project. All source code and documentation developed by the Ro
 - **Nearest Neighbor construction heuristic** (deterministic tie-breaking)
 - **2-Opt local search improvement** (never increases distance)
 - **Combined NN + 2-Opt baseline** (construction + improvement)
-- Comprehensive test suite (88 tests, 96% coverage)
+- **Heuristic scoring contract** (HeuristicContext → HeuristicResult)
+- **RouteHarness** for trusted route construction
+- **Built-in nearest_distance_heuristic** (reproduces NN exactly)
+- Comprehensive test suite (123 tests, 95% coverage)
 
 ### Quick Examples
 
@@ -264,12 +268,44 @@ combined = nearest_neighbor_with_2opt(dist_matrix, max_2opt_iterations=100)
 print(f"Combined distance: {combined.total_distance:.2f}")
 ```
 
-**Full Example:**
-```bash
-$env:PYTHONPATH="D:\routeIQ" ; py examples/baseline_routing.py
+**Heuristic Harness:**
+```python
+from engine.heuristics import (
+    RouteHarness, HeuristicContext, HeuristicResult,
+    nearest_distance_heuristic
+)
+
+# Define a custom heuristic
+def my_heuristic(ctx: HeuristicContext) -> HeuristicResult:
+    """Score candidates by distance from current location."""
+    scores = {
+        stop: ctx.distance_matrix[ctx.current_location, stop]
+        for stop in ctx.candidate_stops
+    }
+    return HeuristicResult(scores=scores)
+
+# Build route using harness
+harness = RouteHarness()
+result = harness.build_route(
+    heuristic=my_heuristic,
+    distance_matrix=dist_matrix,
+    n_stops=10,
+    algorithm_name="My Heuristic"
+)
+print(f"Route: {result.route}")
+print(f"Distance: {result.total_distance:.2f}")
 ```
 
-**Next Milestone**: Heuristic harness and scoring contract
+**Full Examples:**
+```bash
+# Baseline algorithms
+$env:PYTHONPATH="D:\routeIQ" ; py examples/baseline_routing.py
+
+# Heuristic harness
+$env:PYTHONPATH="D:\routeIQ" ; py examples/heuristic_harness.py
+```
+
+**Next Milestone**: LLM client with mock/replay mode
 
 ---
 
