@@ -1,0 +1,9 @@
+{
+  "raw_content": "```python\ndef score_candidates(context):\n    \"\"\"Score candidates by distance from current location.\"\"\"\n    scores = {}\n    for stop in context.candidate_stops:\n        scores[stop] = context.distance_matrix[context.current_location, stop]\n    return {\"scores\": scores}\n```",
+  "provider": "openai",
+  "model": "gpt-4",
+  "generation_id": "simple_nearest",
+  "metadata": {
+    "test_fixture": true
+  }
+}

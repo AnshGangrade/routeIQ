@@ -222,7 +222,8 @@ Academic capstone project. All source code and documentation developed by the Ro
 **Milestone 1**: Instance generation and distance calculations ✅  
 **Milestone 2**: Baseline routing algorithms ✅  
 **Milestone 3**: Heuristic scoring harness ✅  
-**Milestone 4**: Candidate validation and controlled execution ✅
+**Milestone 4**: Candidate validation and controlled execution ✅  
+**Milestone 5**: Runtime LLM client and mock/replay mode ✅
 
 ### Completed Features
 - Synthetic delivery instance generator with reproducible seeds
@@ -238,7 +239,13 @@ Academic capstone project. All source code and documentation developed by the Ro
 - **Static AST validation** (allowlist-based Python subset)
 - **Controlled execution** with restricted namespace and timeout
 - **Candidate adapter** for integrating validated code with harness
-- Comprehensive test suite (167 tests, 91% coverage)
+- **Runtime LLM client** (httpx, OpenAI-compatible API format)
+- **Prompt builder** with iteration feedback and problem context
+- **Response parser** (extract code, validate function signature)
+- **Mock mode** (8 predefined candidates for testing)
+- **Replay mode** (load from saved fixture files)
+- **Client factory** (auto-select based on provider config)
+- Comprehensive test suite (212 tests, 85% coverage)
 
 ### Quick Examples
 
@@ -330,6 +337,37 @@ else:
     print(f"Validation failed: {validation.errors}")
 ```
 
+**LLM Heuristic Generation:**
+```python
+from engine.llm import (
+    LLMConfig, LLMProvider, create_client,
+    GenerationRequest, build_generation_prompt,
+    parse_llm_response
+)
+
+# Configure mock mode (no API calls)
+config = LLMConfig(
+    provider=LLMProvider.MOCK,
+    base_url="mock://local",
+    model="mock-v1"
+)
+
+# Generate heuristic
+with create_client(config) as client:
+    prompt = build_generation_prompt(iteration=0)
+    request = GenerationRequest(
+        prompt=prompt,
+        metadata={"candidate_key": "nearest_distance"}
+    )
+    response = client.generate(request)
+
+# Parse response
+result = parse_llm_response(response)
+if result.success:
+    print(f"Generated function: {result.function_name}")
+    print(f"Source: {result.source_code[:100]}...")
+```
+
 **Full Examples:**
 ```bash
 # Baseline algorithms
@@ -340,9 +378,12 @@ $env:PYTHONPATH="D:\routeIQ" ; py examples/heuristic_harness.py
 
 # Candidate validation
 $env:PYTHONPATH="D:\routeIQ" ; py examples/candidate_validation.py
+
+# LLM generation (mock/replay modes)
+$env:PYTHONPATH="D:\routeIQ" ; py examples/llm_generation.py
 ```
 
-**Next Milestone**: LLM client with mock/replay mode
+**Next Milestone**: Evaluator and fitness scoring
 
 ---
 

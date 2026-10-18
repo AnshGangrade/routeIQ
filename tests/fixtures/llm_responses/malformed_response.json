@@ -1,0 +1,10 @@
+{
+  "raw_content": "I think you should try using a greedy approach. Here's some pseudo-code:\n\n1. Start at depot\n2. Pick nearest unvisited stop\n3. Repeat until done\n\nNo actual Python code provided!",
+  "provider": "openai",
+  "model": "gpt-4",
+  "generation_id": "malformed_response",
+  "metadata": {
+    "test_fixture": true,
+    "note": "Response without code for testing parser error handling"
+  }
+}

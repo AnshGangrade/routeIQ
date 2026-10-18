@@ -1,0 +1,14 @@
+{
+  "raw_content": "Here's a heuristic that combines distance with route position:\n\n```python\ndef score_candidates(context):\n    \"\"\"Score combining distance and route progress.\"\"\"\n    scores = {}\n    route_progress = len(context.partial_route) / (len(context.candidate_stops) + len(context.partial_route))\n    \n    for stop in context.candidate_stops:\n        distance = context.distance_matrix[context.current_location, stop]\n        # Early in route: prefer nearby; later: allow farther stops\n        weight = 1.0 - 0.3 * route_progress\n        scores[stop] = distance * weight\n    \n    return {\"scores\": scores}\n```\n\nThis heuristic adjusts its behavior based on how far along the route construction is.",
+  "provider": "openai",
+  "model": "gpt-4",
+  "generation_id": "weighted_heuristic",
+  "metadata": {
+    "test_fixture": true,
+    "usage": {
+      "prompt_tokens": 450,
+      "completion_tokens": 120,
+      "total_tokens": 570
+    }
+  }
+}
