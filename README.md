@@ -219,12 +219,34 @@ Academic capstone project. All source code and documentation developed by the Ro
 ## Current Status
 
 **Milestone 0**: Project foundation established ✅
-- Repository structure created
-- Git initialized
-- Documentation framework in place
-- Development environment configured
+**Milestone 1**: Instance generation and distance calculations ✅
 
-**Next Milestone**: Instance generator and cost function (Step 1)
+### Completed Features
+- Synthetic delivery instance generator with reproducible seeds
+- Euclidean distance calculations
+- Distance matrix computation  
+- Route cost calculation with validation
+- Comprehensive test suite (62 tests, 97% coverage)
+
+### Quick Example
+
+```python
+from engine.instances import InstanceGenerator, compute_distance_matrix, calculate_route_cost
+
+# Generate instance
+gen = InstanceGenerator(seed=42)
+instance = gen.generate(n_stops=10)
+
+# Compute distances
+locations = instance.get_all_locations()
+dist_matrix = compute_distance_matrix(locations)
+
+# Calculate route cost
+route = [0, 1, 2, 3, 0]  # depot -> stops -> depot
+cost = calculate_route_cost(route, dist_matrix)
+```
+
+**Next Milestone**: Baseline solvers (Nearest Neighbor + 2-Opt)
 
 ---
 
