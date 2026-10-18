@@ -218,20 +218,25 @@ Academic capstone project. All source code and documentation developed by the Ro
 
 ## Current Status
 
-**Milestone 0**: Project foundation established ✅
-**Milestone 1**: Instance generation and distance calculations ✅
+**Milestone 0**: Project foundation established ✅  
+**Milestone 1**: Instance generation and distance calculations ✅  
+**Milestone 2**: Baseline routing algorithms ✅
 
 ### Completed Features
 - Synthetic delivery instance generator with reproducible seeds
-- Euclidean distance calculations
+- Euclidean distance calculations with validation
 - Distance matrix computation  
-- Route cost calculation with validation
-- Comprehensive test suite (62 tests, 97% coverage)
+- Route cost calculation and validation
+- **Nearest Neighbor construction heuristic** (deterministic tie-breaking)
+- **2-Opt local search improvement** (never increases distance)
+- **Combined NN + 2-Opt baseline** (construction + improvement)
+- Comprehensive test suite (88 tests, 96% coverage)
 
-### Quick Example
+### Quick Examples
 
+**Instance Generation:**
 ```python
-from engine.instances import InstanceGenerator, compute_distance_matrix, calculate_route_cost
+from engine.instances import InstanceGenerator, compute_distance_matrix
 
 # Generate instance
 gen = InstanceGenerator(seed=42)
@@ -240,13 +245,31 @@ instance = gen.generate(n_stops=10)
 # Compute distances
 locations = instance.get_all_locations()
 dist_matrix = compute_distance_matrix(locations)
-
-# Calculate route cost
-route = [0, 1, 2, 3, 0]  # depot -> stops -> depot
-cost = calculate_route_cost(route, dist_matrix)
 ```
 
-**Next Milestone**: Baseline solvers (Nearest Neighbor + 2-Opt)
+**Baseline Routing:**
+```python
+from engine.baselines import nearest_neighbor, two_opt, nearest_neighbor_with_2opt
+
+# Run Nearest Neighbor
+nn_result = nearest_neighbor(dist_matrix)
+print(f"NN distance: {nn_result.total_distance:.2f}")
+
+# Improve with 2-Opt
+improved = two_opt(nn_result.route, dist_matrix, max_iterations=100)
+print(f"Improved distance: {improved.total_distance:.2f}")
+
+# Or run combined algorithm
+combined = nearest_neighbor_with_2opt(dist_matrix, max_2opt_iterations=100)
+print(f"Combined distance: {combined.total_distance:.2f}")
+```
+
+**Full Example:**
+```bash
+$env:PYTHONPATH="D:\routeIQ" ; py examples/baseline_routing.py
+```
+
+**Next Milestone**: Heuristic harness and scoring contract
 
 ---
 

@@ -63,7 +63,7 @@ def compute_distance_matrix(locations: List[Point]) -> np.ndarray:
         >>> matrix[0, 0]  # Distance from depot to itself
         0.0
     """
-    if not locations:
+    if len(locations) == 0:
         raise ValueError("Cannot compute distance matrix for empty locations list")
     
     n = len(locations)
