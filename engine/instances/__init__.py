@@ -14,6 +14,7 @@ from .distance import (
     euclidean_distance,
     compute_distance_matrix,
     calculate_route_cost,
+    validate_route,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "euclidean_distance",
     "compute_distance_matrix",
     "calculate_route_cost",
+    "validate_route",
 ]

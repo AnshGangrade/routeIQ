@@ -223,7 +223,8 @@ Academic capstone project. All source code and documentation developed by the Ro
 **Milestone 2**: Baseline routing algorithms ✅  
 **Milestone 3**: Heuristic scoring harness ✅  
 **Milestone 4**: Candidate validation and controlled execution ✅  
-**Milestone 5**: Runtime LLM client and mock/replay mode ✅
+**Milestone 5**: Runtime LLM client and mock/replay mode ✅  
+**Milestone 6**: Heuristic evaluation and fitness scoring ✅
 
 ### Completed Features
 - Synthetic delivery instance generator with reproducible seeds
@@ -245,7 +246,12 @@ Academic capstone project. All source code and documentation developed by the Ro
 - **Mock mode** (8 predefined candidates for testing)
 - **Replay mode** (load from saved fixture files)
 - **Client factory** (auto-select based on provider config)
-- Comprehensive test suite (212 tests, 85% coverage)
+- **Benchmark evaluator** (test heuristics on multiple instances)
+- **Fair baseline comparison** (NN and NN+2-Opt on same instances)
+- **Fitness scoring** (lower=better, penalizes failures)
+- **Candidate selection** (deterministic ranking with tie-breaking)
+- **Feedback preparation** (structured data for LLM prompts)
+- Comprehensive test suite (243 tests, 84% coverage)
 
 ### Quick Examples
 
@@ -368,6 +374,46 @@ if result.success:
     print(f"Source: {result.source_code[:100]}...")
 ```
 
+**Heuristic Evaluation:**
+```python
+from engine.evaluation import (
+    HeuristicEvaluator,
+    FitnessFunction,
+    CandidateSelector,
+    prepare_feedback
+)
+
+# Evaluate candidate on benchmark instances
+evaluator = HeuristicEvaluator()
+result = evaluator.evaluate_candidate(
+    candidate=my_candidate,
+    instances=test_instances,
+    candidate_id="gen_001"
+)
+print(f"Success rate: {result.success_rate * 100:.1f}%")
+print(f"Mean distance: {result.mean_distance:.2f}")
+
+# Compare with baselines
+comparison = evaluator.compare_with_baselines(
+    candidate_result=result,
+    instances=test_instances
+)
+print(f"vs NN: {comparison.improvement_vs_nn:+.1f}%")
+print(f"vs NN+2-Opt: {comparison.improvement_vs_2opt:+.1f}%")
+
+# Calculate fitness and select best
+fitness_fn = FitnessFunction()
+fitness = fitness_fn.calculate(result)
+
+selector = CandidateSelector(fitness_function=fitness_fn)
+selection = selector.select_best([result], n_select=1)
+print(f"Selected: {selection.selected_candidates[0]}")
+
+# Prepare feedback for next iteration
+feedback = prepare_feedback(comparison, fitness)
+feedback_text = feedback.to_feedback_text()
+```
+
 **Full Examples:**
 ```bash
 # Baseline algorithms
@@ -381,9 +427,12 @@ $env:PYTHONPATH="D:\routeIQ" ; py examples/candidate_validation.py
 
 # LLM generation (mock/replay modes)
 $env:PYTHONPATH="D:\routeIQ" ; py examples/llm_generation.py
+
+# Evaluation and fitness scoring
+$env:PYTHONPATH="D:\routeIQ" ; py examples/evaluation_demo.py
 ```
 
-**Next Milestone**: Evaluator and fitness scoring
+**Next Milestone**: Evolution loop with iterative improvement
 
 ---
 
