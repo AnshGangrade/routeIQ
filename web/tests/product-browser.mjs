@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, '../runs/frontend-redesign/product-browser');
+const output = path.resolve(root, '../runs/phase8/product-browser');
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);

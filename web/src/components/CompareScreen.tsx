@@ -13,10 +13,11 @@ export function CompareScreen({ instance, comparison, loading, error, busy, evol
   const sameProblem = comparison?.instance_id === instance.instance_id &&
     (!instance.problem_fingerprint || comparison?.problem_fingerprint === instance.problem_fingerprint) &&
     (!instance.matrix_fingerprint || comparison?.matrix_fingerprint === instance.matrix_fingerprint);
-  const measured = sameProblem ? comparison!.comparisons.filter(r => Number.isFinite(r.total_distance) && r.total_distance >= 0 && r.feasible !== false &&
+  const measured = sameProblem ? comparison!.comparisons.filter(r => Number.isFinite(r.total_distance) && r.total_distance >= 0 && r.feasible !== false && r.execution?.status !== 'failed' &&
     (!instance.problem_fingerprint || r.problem_fingerprint === instance.problem_fingerprint) &&
     (!instance.matrix_fingerprint || r.matrix_fingerprint === instance.matrix_fingerprint)) : [];
   const mismatch = !!comparison && (!sameProblem || measured.length !== comparison.comparisons.length);
+  const best = measured.filter(r => r.feasible === true).reduce<(typeof measured)[number] | null>((winner, r) => !winner || r.total_distance < winner.total_distance ? r : winner, null);
   const nn = measured.find(r => r.method === 'nearest_neighbor');
   const final = measured.find(r => r.method === 'evolved');
   const methods: Method[] = ['nearest_neighbor', '2opt', 'portfolio', 'vnd', 'vnd_ils', 'strategy', 'evolved'];
@@ -24,10 +25,13 @@ export function CompareScreen({ instance, comparison, loading, error, busy, evol
     {loading && <p role="status">Loading comparisons...</p>}
     {error && <div className="notice error" role="alert"><p>{error}</p><button className="button secondary" onClick={onRetry}>Retry comparison</button></div>}
     {mismatch && <p className="notice error" role="alert">Unverified or mismatched results were excluded. Recalculate routes for this problem and matrix.</p>}
+    {best && <section className="best-measured" aria-label="Best valid measured result"><div><p className="eyebrow">Shortest validated result on this plan</p><h2>{methodNames[best.method as Method]}</h2><strong className="best-distance">{formatDistance(best.total_distance,instance.mode)}</strong><span className={`badge ${best.execution?.status==='incomplete'?'warning':''}`}>{statusText(best.execution?.status || 'measured')}</span><p className="small muted">{best.execution?.status==='incomplete'?'Valid incumbent retained. The search stopped before completion.':'Measured on the selected problem and distance matrix.'} Equal distances may be shared by other methods.</p></div><div className="best-context"><p className="eyebrow">Relative to Nearest Neighbor</p><p className="best-difference">{differenceText(best.total_distance,nn?.total_distance)}</p><p className="small muted">Best observed here, not a claim of global optimality.</p><button className="button primary" disabled={busy} onClick={()=>onView(best.method as Method)}>Inspect shortest routes</button></div></section>}
     <ComparisonBars rows={measured} mode={instance.mode} onView={onView} busy={busy} />
     <div className="panel stack comparison-grid" style={{ display: 'block' }}>
       <div className="section-heading"><h2>Fleet performance</h2><span className="badge">{instance.mode === 'road' ? 'Road distances' : 'Synthetic map units'}</span></div>
       <p className="small muted">Historical Nearest Neighbor and NN + 2-Opt keep their original definitions. An incomplete search returned a validated plan within its limits; it did not complete the full search.</p>
+      <div className="method-options">{methods.map(method=>{const row=measured.find(r=>r.method===method);const rejected=sameProblem?comparison?.comparisons.find(r=>r.method===method):undefined;return <article className="method-option" key={method}><div><h3>{methodNames[method]}</h3><p>{row?formatDistance(row.total_distance,instance.mode):'No measured result'}</p><small>{row?`${statusText(row.execution?.status || 'measured')} / ${row.feasible?'Validated':'Feasibility not reported'}`:rejected?rejected.execution?.status==='failed'?'Failed evaluation':'Unverified result':'Not run'}</small></div>{row?<button className="text-button" disabled={busy} onClick={()=>onView(method)}>View {methodNames[method]} routes</button>:<a className="text-button" href={method==='strategy'||method==='evolved'?'#lab':'#routes'}>{method==='strategy'||method==='evolved'?'Open Evolution Lab':'Open route controls'}</a>}</article>;})}</div>
+      <details className="comparison-diagnostics"><summary>Technical diagnostics / execution, feasibility &amp; fingerprints</summary>
       <div className="table-scroll"><table className="comparison-table"><caption>{instance.mode === 'road' ? 'Road distances from the selected matrix' : 'Synthetic distances in map units'} - percentages are relative to Nearest Neighbor</caption><thead><tr><th>Method</th><th>Total distance</th><th>Vs Nearest Neighbor</th><th>Longest driver</th><th>Runtime</th><th>Work</th><th>Status / feasibility</th><th>Routes</th></tr></thead><tbody>
         {methods.map(method => {
           const result = measured.find(r => r.method === method);
@@ -43,6 +47,7 @@ export function CompareScreen({ instance, comparison, loading, error, busy, evol
       </tbody></table></div>
       <p className="small muted">Compute budgets differ from historical uninstrumented baselines. Runtime measures solver work; road geometry retrieval is separate. No completed-only improvement is inferred from an incomplete result.</p>
       {instance.matrix_fingerprint && <p className="small mono">Matrix {instance.matrix_fingerprint.slice(0, 16)} / problem {instance.problem_fingerprint?.slice(0, 16)}</p>}
+      </details>
       {final?.optimization && <details open><summary>Legacy heuristic non-regression selection</summary><PlanSelection selection={final.optimization} distance={final.total_distance} mode={instance.mode} /></details>}
       {appliedRunId && final && <p className="small muted">Applied legacy run: {appliedRunId}</p>}
     </div>

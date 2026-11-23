@@ -65,3 +65,21 @@ test('candidate comparison handles a pending record before evaluation fields arr
  const html=el(CandidateComparison,{offline:true,records:[{strategy_id:'pending',creation_method:'seed',fitness:{}}]});
  assert.match(html,/Pending evaluation/);assert.match(html,/Unavailable/);assert.doesNotMatch(html,/NaN|undefined|0.000 s/);
 });
+
+const {CompareScreen}=require('../src/components/CompareScreen.tsx');
+function quietComparison(rows) {
+ return el(CompareScreen,{instance:{instance_id:'a',mode:'synthetic',num_stops:5,num_drivers:2,matrix_fingerprint:'m',problem_fingerprint:'p'},comparison:{instance_id:'a',matrix_fingerprint:'m',problem_fingerprint:'p',comparisons:rows},loading:false,error:null,busy:false,evolution:null,onRetry(){},onRun(){},onView(){}});
+}
+const quietRow=(method,distance,status='completed')=>({method,total_distance:distance,longest_route_distance:distance,computation_time:.01,feasible:true,matrix_fingerprint:'m',problem_fingerprint:'p',execution:{status,termination:'budget_exhausted',operations:100}});
+test('Quiet Atlas highlights the shortest valid incomplete incumbent with honest status',()=>{
+ const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('vnd',80,'incomplete')]);
+ const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
+ assert.match(hero,/80.00 map units/);assert.match(hero,/incomplete/);assert.match(hero,/20.0% shorter/);assert.match(hero,/stopped before completion/);
+ assert.match(html,/<details class="comparison-diagnostics">/);
+});
+test('Quiet Atlas excludes failed and mismatched results from best measured selection',()=>{
+ const bad=quietRow('vnd_ils',1);bad.matrix_fingerprint='other';
+ const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('vnd',2,'failed'),bad]);
+ const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
+ assert.match(hero,/100.00 map units/);assert.doesNotMatch(hero,/2.00 map units|1.00 map units/);assert.match(html,/Failed evaluation/);assert.match(html,/Unverified result/);
+});

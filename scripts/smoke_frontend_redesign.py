@@ -94,7 +94,7 @@ def main():
         assert any(j['state']['status']=='cancelled' for j in optimization.jobs.values())
         strategies_used = [row for row in audited if row['method']=='strategy']
         assert len({row['instance_id'] for row in strategies_used})>=2
-        (ROOT/'runs/frontend-redesign/smoke-measurements.json').write_text(json.dumps(audited,indent=2),encoding='utf-8')
+        (ROOT/'runs/phase8/smoke-measurements.json').write_text(json.dumps(audited,indent=2),encoding='utf-8')
         print(f'Independent matrix/coverage audit: {len(audited)} route results passed; cancellation and two-instance application verified')
         return 0
     finally:
