@@ -42,11 +42,12 @@ class LLMConfig(BaseModel):
         ... )
     """
     provider: LLMProvider = Field(..., description="LLM provider")
-    api_key: Optional[str] = Field(None, description="API key (not required for mock/replay)")
+    api_key: Optional[str] = Field(None, repr=False, description="API key (not required for mock/replay)")
     base_url: str = Field(..., description="API base URL")
     model: str = Field(..., description="Model identifier")
     temperature: float = Field(default=0.7, ge=0.0, le=1.0, description="Sampling temperature")
     timeout: float = Field(default=30.0, ge=1.0, description="Request timeout in seconds")
+    replay_fixtures: List[str] = Field(default_factory=list, description="Explicit cyclic fixture sequence for offline evolution")
     
     def __repr__(self) -> str:
         # Never log API keys

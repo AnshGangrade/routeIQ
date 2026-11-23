@@ -50,7 +50,9 @@ def test_create_instance(client):
     assert response.status_code == 200
     data = response.json()
     
-    assert data["instance_id"] == "inst_42_20s_2d"
+    import uuid
+    assert data["instance_id"].startswith("inst_")
+    assert uuid.UUID(data["instance_id"][5:]).hex == data["instance_id"][5:]
     assert data["seed"] == 42
     assert data["num_stops"] == 20
     assert data["num_drivers"] == 2
@@ -204,8 +206,12 @@ def test_routing_evolved_invalid_code(client, test_instance):
         "heuristic_code": "def score_candidates(context): import os; return []"
     })
     
-    # Should be 400, but may be 500 if sandbox not working
-    assert response.status_code in [400, 500]  # Allow either for now
+    assert response.status_code == 200
+    selection = response.json()["optimization"]
+    assert selection["raw_evolved_distance"] is None
+    assert selection["baseline_retained"]
+    assert "raw_evolved" in selection["errors"]
+    assert response.json()["total_distance"] == selection["best_baseline_distance"]
 
 
 def test_routing_evolved_valid_code(client, test_instance):
@@ -217,10 +223,10 @@ def score_candidates(context):
     candidates = context.candidate_stops
     dist_matrix = context.distance_matrix
     
-    return {
+    return {"scores": {
         stop: dist_matrix[current, stop]
         for stop in candidates
-    }
+    }}
 """
     
     response = client.post("/api/routing/solve", json={
@@ -229,9 +235,38 @@ def score_candidates(context):
         "heuristic_code": heuristic_code
     })
     
-    # Note: May be 500 if sandbox execution not fully implemented
-    # For now, just check we get a response
-    assert response.status_code in [200, 500]  # Allow either for now
+    assert response.status_code == 200, response.json()
+    baseline = client.post("/api/routing/solve", json={
+        "instance_id": test_instance, "method": "nearest_neighbor"
+    })
+    assert baseline.status_code == 200
+    selection = response.json()["optimization"]
+    assert selection["raw_evolved_distance"] == pytest.approx(baseline.json()["total_distance"])
+    assert response.json()["total_distance"] <= baseline.json()["total_distance"]
+    assert selection["baseline_retained"]  # NN candidate ties or loses to its 2-Opt baseline.
+    refined = client.post("/api/routing/solve", json={
+        "instance_id": test_instance, "method": "2opt"
+    })
+    assert refined.status_code == 200
+    expected = min((baseline.json(), refined.json()), key=lambda result: result["total_distance"])
+    assert response.json()["total_distance"] == expected["total_distance"]
+    assert [driver["route"] for driver in response.json()["drivers"]] == [
+        driver["route"] for driver in expected["drivers"]
+    ]
+
+
+def test_routing_evolved_bare_scores_rejected(client, test_instance):
+    response = client.post("/api/routing/solve", json={
+        "instance_id": test_instance,
+        "method": "evolved",
+        "heuristic_code": "def score_candidates(context): return {s: 0 for s in context.candidate_stops}",
+    })
+    assert response.status_code == 200
+    selection = response.json()["optimization"]
+    assert selection["raw_evolved_distance"] is None
+    assert "raw_evolved" in selection["errors"]
+    assert selection["baseline_retained"]
+    assert response.json()["total_distance"] == selection["best_baseline_distance"]
 
 
 # ============================================================================
@@ -320,18 +355,14 @@ def test_start_evolution_invalid_mode(client):
     assert response.status_code == 400
 
 
-def test_start_evolution_live_missing_model(client):
-    """Test starting evolution in live mode without model."""
-    response = client.post("/api/evolution/runs", json={
-        "num_stops": 20,
-        "num_instances": 5,
-        "num_generations": 3,
-        "candidates_per_generation": 4,
-        "elites_kept": 2,
-        "mode": "live"
-    })
-    
+def test_start_evolution_live_missing_model(client, monkeypatch):
+    """Missing live configuration fails before a background job is admitted."""
+    for name in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"):
+        monkeypatch.delenv(name, raising=False)
+    response = client.post("/api/evolution/runs", json={"mode": "live"})
     assert response.status_code == 400
+    assert "requires" in response.json()["detail"]
+    assert not evolution_runs
 
 
 def test_get_evolution_progress(client):
@@ -387,7 +418,6 @@ def test_get_evolution_progress_nonexistent(client):
 
 def test_get_best_heuristic(client):
     """Test getting best heuristic from completed run."""
-    import time
     
     # Start and complete a run (use minimum valid values)
     start_response = client.post("/api/evolution/runs", json={
@@ -403,34 +433,19 @@ def test_get_best_heuristic(client):
     assert start_response.status_code == 200
     run_id = start_response.json()["run_id"]
     
-    # Wait longer for completion
-    time.sleep(5)
-    
+    # TestClient waits for the synchronous background task before returning.
     # Check status first
     progress = client.get(f"/api/evolution/runs/{run_id}")
     status = progress.json()["status"]
     
-    if status != "completed":
-        # If not completed, skip the best heuristic test
-        print(f"Run status: {status}, skipping best heuristic check")
-        # If failed, also skip
-        if status == "failed":
-            print(f"Error: {progress.json().get('error')}")
-        return
+    assert status == "completed", progress.json()
     
     # Check if best_heuristic_id exists
     best_id = progress.json().get("best_heuristic_id")
-    if not best_id:
-        print("No best heuristic ID, skipping")
-        return
+    assert best_id
     
     # Get best heuristic
     response = client.get(f"/api/evolution/runs/{run_id}/best")
-    
-    # May be 404 if best heuristic data structure doesn't match
-    if response.status_code == 404:
-        print("Best heuristic endpoint returned 404, evolution structure mismatch")
-        return
     
     assert response.status_code == 200
     data = response.json()
@@ -440,6 +455,12 @@ def test_get_best_heuristic(client):
     assert data["heuristic"]["is_valid"] is True
     assert data["heuristic"]["code"] != ""
     assert data["validation_fitness"] is not None
+    assert data["heuristic"]["heuristic_id"] == best_id
+    valid = [
+        candidate for generation in progress.json()["generations"]
+        for candidate in generation["candidates"] if candidate["is_valid"]
+    ]
+    assert data["heuristic"]["fitness"] == min(candidate["fitness"] for candidate in valid)
 
 
 def test_get_best_heuristic_nonexistent(client):

@@ -2,10 +2,16 @@
 Instance generation and retrieval endpoints.
 """
 from fastapi import APIRouter, HTTPException
+from starlette.concurrency import run_in_threadpool
+import uuid
+import logging
+from api import storage
 from typing import Dict
 
 from api.models import GenerateInstanceRequest, InstanceResponse, StopResponse, DriverResponse
 from engine.instances import InstanceGenerator
+from engine.routing.adapters import problem_from_instance, problem_from_road_result
+from engine.routing.problem import MatrixProvenance
 from api.storage import instance_store
 
 router = APIRouter()
@@ -27,6 +33,11 @@ DRIVER_COLORS = [
 
 @router.post("", response_model=InstanceResponse)
 async def create_instance(request: GenerateInstanceRequest):
+    with storage.expensive_request():
+        return await run_in_threadpool(_create_instance, request)
+
+
+def _create_instance(request: GenerateInstanceRequest):
     """
     Generate a new routing instance.
     
@@ -36,6 +47,9 @@ async def create_instance(request: GenerateInstanceRequest):
     
     For road mode, provide depot_coords and stop_coords as [lon, lat] pairs.
     """
+    with storage.storage_lock:
+        if len(instance_store) >= storage.MAX_INSTANCES:
+            raise HTTPException(status_code=429, detail="Instance capacity reached; restart the local server to clear retained instances")
     try:
         mode = request.mode.lower()
         
@@ -48,7 +62,7 @@ async def create_instance(request: GenerateInstanceRequest):
             )
             
             # Create instance ID
-            instance_id = f"inst_{instance.seed}_{request.num_stops}s_{request.num_drivers}d"
+            instance_id = f"inst_{uuid.uuid4().hex}"
             
             # Convert stops to response format
             stops = [
@@ -78,6 +92,8 @@ async def create_instance(request: GenerateInstanceRequest):
             }
             
         elif mode == "road":
+            if request.num_stops > 99:
+                raise HTTPException(status_code=400, detail="Road mode supports 5–99 stops (plus one depot)")
             # Validate road mode inputs
             if not request.depot_coords or not request.stop_coords:
                 raise HTTPException(
@@ -102,70 +118,76 @@ async def create_instance(request: GenerateInstanceRequest):
             # Get road distances
             from engine.road import create_road_distance_matrix
             
-            try:
-                distance_matrix, road_result = create_road_distance_matrix(all_coords)
-                
-                if not road_result.success:
-                    raise HTTPException(
-                        status_code=503,
-                        detail=f"Road routing failed: {road_result.error}"
-                    )
-                
-                # Create instance ID
-                instance_id = f"road_{request.num_stops}s_{request.num_drivers}d_{id(request) % 10000}"
-                
-                # Convert stops to response format (use lon/lat)
-                stops = [
-                    StopResponse(
-                        stop_id=i + 1,
-                        x=coord[0],  # longitude
-                        y=coord[1]   # latitude
-                    )
-                    for i, coord in enumerate(request.stop_coords)
-                ]
-                
-                # Create synthetic instance for storage (algorithms need it)
-                from engine.instances.models import DeliveryInstance, Stop, Point
-                depot_stop = Stop(id=0, location=Point(x=request.depot_coords[0], y=request.depot_coords[1]), label="Depot")
-                stops_list = [
-                    Stop(id=i+1, location=Point(x=coord[0], y=coord[1]), label=f"Stop {i+1}")
-                    for i, coord in enumerate(request.stop_coords)
-                ]
-                instance = DeliveryInstance(
-                    seed=request.seed or 0,
-                    depot=depot_stop,
-                    stops=stops_list,
-                    n_stops=request.num_stops
-                )
-                
-                response_data = {
-                    "instance_id": instance_id,
-                    "seed": request.seed or 0,
-                    "num_stops": request.num_stops,
-                    "num_drivers": request.num_drivers,
-                    "layout": "road",
-                    "mode": "road",
-                    "depot": {"lon": request.depot_coords[0], "lat": request.depot_coords[1]},
-                    "stops": stops,
-                    "drivers": [],
-                    "road_routing_info": {
-                        "provider": road_result.provider,
-                        "cache_hit": road_result.cache_hit,
-                        "metadata": road_result.metadata
-                    }
-                }
-                
-            except Exception as e:
+            distance_matrix, road_result = create_road_distance_matrix(all_coords)
+            
+            if not road_result.success:
+                # Return HTTP 503 for service failures (OSRM unavailable, network issues)
+                # This must not be caught by the outer exception handler
                 raise HTTPException(
-                    status_code=500,
-                    detail=f"Road routing request failed: {str(e)}"
+                    status_code=503,
+                    detail="Road routing service unavailable or returned an invalid distance matrix"
                 )
+            
+            # Road routing succeeded - create instance
+            instance_id = f"road_{uuid.uuid4().hex}"
+            
+            # Convert stops to response format (use lon/lat)
+            stops = [
+                StopResponse(
+                    stop_id=i + 1,
+                    x=coord[0],  # longitude
+                    y=coord[1]   # latitude
+                )
+                for i, coord in enumerate(request.stop_coords)
+            ]
+            
+            # Create synthetic instance for storage (algorithms need it)
+            from engine.instances.models import DeliveryInstance, Stop, Point
+            depot_stop = Stop(id=0, location=Point(x=request.depot_coords[0], y=request.depot_coords[1]), label="Depot")
+            stops_list = [
+                Stop(id=i+1, location=Point(x=coord[0], y=coord[1]), label=f"Stop {i+1}")
+                for i, coord in enumerate(request.stop_coords)
+            ]
+            instance = DeliveryInstance(
+                seed=request.seed or 0,
+                depot=depot_stop,
+                stops=stops_list,
+                n_stops=request.num_stops
+            )
+            
+            response_data = {
+                "instance_id": instance_id,
+                "seed": request.seed or 0,
+                "num_stops": request.num_stops,
+                "num_drivers": request.num_drivers,
+                "layout": "road",
+                "mode": "road",
+                "depot": {"lon": request.depot_coords[0], "lat": request.depot_coords[1]},
+                "stops": stops,
+                "drivers": [],
+                "road_routing_info": {
+                    "provider": road_result.provider,
+                    "cache_hit": road_result.cache_hit,
+                    "metadata": road_result.metadata
+                }
+            }
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid mode '{mode}'. Must be 'synthetic' or 'road'"
             )
         
+        problem = (problem_from_road_result(instance, request.num_drivers, road_result)
+                   if mode == "road" else problem_from_instance(
+                       instance, request.num_drivers, distance_matrix=distance_matrix,
+                       provenance=MatrixProvenance(source="euclidean", provider="routeiq")))
+        if request.workload is not None:
+            try:
+                problem = type(problem).model_validate({**problem.model_dump(), "workload": request.workload})
+            except ValueError:
+                raise HTTPException(422, "Workload must be feasible within floor(stops/drivers)..ceil(stops/drivers)") from None
+        response_data.update(problem_fingerprint=problem.fingerprint, matrix_fingerprint=problem.matrix_fingerprint,
+                             distance_units=problem.distance_units, workload=problem.workload)
         # Create drivers (common for both modes)
         drivers = [
             DriverResponse(
@@ -181,22 +203,32 @@ async def create_instance(request: GenerateInstanceRequest):
         response = InstanceResponse(**response_data)
         
         # Store instance data for later retrieval
-        instance_store[response.instance_id] = {
+        storage_data = {
+            "problem": problem,
             "instance": instance,
             "num_drivers": request.num_drivers,
             "response": response,
-            "distance_matrix": distance_matrix,
+            "distance_matrix": problem.matrix_array(),
             "mode": mode
         }
+        
+        # Add coordinates for road mode (needed for geometry retrieval)
+        if mode == "road":
+            storage_data["depot_coords"] = request.depot_coords
+            storage_data["stop_coords"] = request.stop_coords
+        
+        with storage.storage_lock:
+            if len(instance_store) >= storage.MAX_INSTANCES:
+                raise HTTPException(status_code=429, detail="Instance capacity reached")
+            instance_store[response.instance_id] = storage_data
         
         return response
         
     except HTTPException:
         raise
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Failed to create instance: {str(e)}")
+        logging.getLogger(__name__).warning("instance_creation_failed", extra={"error_type": type(e).__name__})
+        raise HTTPException(status_code=500, detail="Failed to create instance") from None
 
 
 @router.get("/{instance_id}", response_model=InstanceResponse)

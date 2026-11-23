@@ -27,8 +27,8 @@ class RoadRoutingConfig(BaseModel):
         cache_enabled: Whether to cache results
     """
     provider: RoadProvider = Field(RoadProvider.OSRM_PUBLIC, description="Routing provider")
-    base_url: str = Field("http://router.project-osrm.org", description="API base URL")
-    api_key: Optional[str] = Field(None, description="API key if required")
+    base_url: str = Field("https://router.project-osrm.org", description="API base URL")
+    api_key: Optional[str] = Field(None, repr=False, description="API key if required")
     timeout: float = Field(30.0, ge=1.0, description="Request timeout in seconds")
     max_locations: int = Field(100, ge=2, description="Max locations per request")
     cache_enabled: bool = Field(True, description="Enable response caching")

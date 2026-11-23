@@ -94,11 +94,16 @@ class RouteHarness:
         
         # Iteratively select next stop
         while unvisited:
+            # Never expose the reference used to measure route cost. A fresh
+            # copy also prevents mutations from leaking into later decisions,
+            # even if candidate code makes its own array writable again.
+            candidate_matrix = distance_matrix.copy()
+            candidate_matrix.setflags(write=False)
             # Build context for heuristic
             context = HeuristicContext(
                 current_location=current_location,
                 candidate_stops=sorted(unvisited),  # Sorted for consistency
-                distance_matrix=distance_matrix,
+                distance_matrix=candidate_matrix,
                 partial_route=partial_route.copy()  # Defensive copy
             )
             

@@ -112,7 +112,9 @@ class LLMClient:
         
         # Make request
         try:
-            endpoint = f"{self.config.base_url}/chat/completions"
+            # Construct endpoint, handling trailing slashes correctly
+            base = self.config.base_url.rstrip('/')
+            endpoint = f"{base}/chat/completions"
             
             response = self.client.post(
                 endpoint,
@@ -126,27 +128,16 @@ class LLMClient:
             # Handle HTTP errors without leaking API key
             status = e.response.status_code
             
-            # Try to extract error message from response
-            try:
-                error_data = e.response.json()
-                error_msg = error_data.get("error", {}).get("message", str(e))
-            except Exception:
-                error_msg = f"HTTP {status}"
-            
-            raise RuntimeError(
-                f"LLM API request failed ({status}): {error_msg}"
-            ) from e
-            
+            message = "Invalid API key" if status == 401 else "Provider rejected the request"
+            raise RuntimeError(f"LLM API request failed ({status}): {message}") from None
         except httpx.RequestError as e:
-            raise RuntimeError(
-                f"LLM API request failed: {type(e).__name__}: {e}"
-            ) from e
-        
+            raise RuntimeError(f"LLM API request failed: {type(e).__name__}") from None
+
         # Parse response
         try:
             data = response.json()
         except Exception as e:
-            raise ValueError(f"Failed to parse LLM response as JSON: {e}") from e
+            raise ValueError("Failed to parse LLM response as JSON") from e
         
         # Extract content from OpenAI format
         try:
@@ -189,7 +180,7 @@ class LLMClient:
         return f"LLMClient(config={self.config})"
 
 
-def load_config_from_env() -> LLMConfig:
+def load_config_from_env(*, model_override: Optional[str] = None, temperature_override: Optional[float] = None) -> LLMConfig:
     """
     Load LLM configuration from environment variables.
     
@@ -216,17 +207,15 @@ def load_config_from_env() -> LLMConfig:
         >>> config = load_config_from_env()
     """
     import os
-    from dotenv import load_dotenv
     
-    # Load .env file if present
-    load_dotenv()
+    # Read only the process environment; never load secret files implicitly.
     
     # Read configuration
     provider = os.getenv("LLM_PROVIDER", "openai")
     api_key = os.getenv("LLM_API_KEY")
     base_url = os.getenv("LLM_BASE_URL")
-    model = os.getenv("LLM_MODEL")
-    temperature = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+    model = model_override if model_override is not None else os.getenv("LLM_MODEL")
+    temperature = temperature_override if temperature_override is not None else float(os.getenv("LLM_TEMPERATURE", "0.7"))
     timeout = float(os.getenv("LLM_TIMEOUT", "30.0"))
     
     # Validate required fields

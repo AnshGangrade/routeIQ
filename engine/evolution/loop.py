@@ -1,7 +1,7 @@
 """Main evolutionary loop orchestrating generation, evaluation, and selection."""
 
 import uuid
-import time
+import math
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 
@@ -18,12 +18,13 @@ from engine.llm.models import GenerationRequest
 from engine.llm.parser import parse_llm_response
 from engine.llm.prompts import build_generation_prompt
 from engine.sandbox.validator import HeuristicValidator
-from engine.sandbox.adapter import create_scoring_function
 from engine.evaluation.evaluator import HeuristicEvaluator
 from engine.evaluation.fitness import FitnessFunction
-from engine.evaluation.selection import CandidateSelector
-from engine.evaluation.feedback import prepare_feedback
 from engine.instances.generator import InstanceGenerator
+
+
+class EvolutionCancelled(Exception):
+    """Cooperative cancellation at a candidate/generation boundary."""
 
 
 class EvolutionLoop:
@@ -43,14 +44,17 @@ class EvolutionLoop:
         self,
         config: EvolutionConfig,
         llm_client: LLMClient,
+        progress_callback=None,
+        should_cancel=None,
     ):
         self.config = config
         self.llm_client = llm_client
+        self.progress_callback = progress_callback
+        self.should_cancel = should_cancel or (lambda: False)
         
         # Initialize components
         self.validator = HeuristicValidator()
         self.fitness_fn = FitnessFunction()
-        self.selector = CandidateSelector()
         
         # Will be set during run
         self.training_instances = []
@@ -59,8 +63,18 @@ class EvolutionLoop:
         
         # Tracking
         self.run: Optional[EvolutionRun] = None
+        self.best_candidate_id: Optional[str] = None
         self.best_candidate_code: Optional[str] = None
         self.best_fitness: Optional[float] = None
+        self.retained_candidates: List[CandidateRecord] = []
+
+    def _check_cancelled(self):
+        if self.should_cancel():
+            raise EvolutionCancelled("Cancelled at a safe boundary; in-flight calls are allowed to finish")
+
+    def _progress(self, stage, generation=0, candidates_done=0, record=None):
+        if self.progress_callback:
+            self.progress_callback(stage, generation, candidates_done, record)
     
     def run_evolution(self) -> EvolutionRun:
         """Run complete evolution pipeline.
@@ -69,6 +83,10 @@ class EvolutionLoop:
             EvolutionRun with complete tracking data
         """
         # Initialize run
+        self.best_candidate_id = None
+        self.best_candidate_code = None
+        self.best_fitness = None
+        self.retained_candidates = []
         run_id = self._generate_run_id()
         self.run = EvolutionRun(
             run_id=run_id,
@@ -78,6 +96,8 @@ class EvolutionLoop:
         )
         
         try:
+            self._check_cancelled()
+            self._progress("preparing")
             # Generate instances
             self._generate_instances()
             
@@ -86,6 +106,7 @@ class EvolutionLoop:
                 print(f"\n=== Generation {gen_num}/{self.config.num_generations} ===")
                 generation_record = self._run_generation(gen_num)
                 self.run.add_generation(generation_record)
+                self._progress("generation_completed", gen_num, len(generation_record.candidates), generation_record)
                 
                 # Print progress
                 print(f"Valid: {generation_record.num_valid}/{len(generation_record.candidates)}")
@@ -96,21 +117,32 @@ class EvolutionLoop:
             
             # Evaluate best candidate on test set
             if self.best_candidate_code:
+                self._check_cancelled()
+                self._progress("held_out", self.config.num_generations)
                 print("\n=== Held-Out Test Evaluation ===")
                 test_eval = self._evaluate_on_test_set()
                 self.run.test_evaluation = test_eval
+                self._check_cancelled()
                 
                 # Update final results
                 self.run.best_candidate_id = test_eval.candidate_id
                 self.run.best_candidate_code = self.best_candidate_code
                 self.run.best_training_fitness = self.best_fitness
+                
+                self.run.mark_completed()
+                print(f"\nEvolution completed: {run_id}")
+            else:
+                # No valid candidates found across all generations
+                self.run.mark_failed("No valid candidates produced across all generations")
+                print("\nEvolution failed: No valid candidates")
             
-            self.run.mark_completed()
-            print(f"\n✓ Evolution completed: {run_id}")
-            
+        except EvolutionCancelled as e:
+            self.run.status = "cancelled"
+            self.run.error_message = str(e)
+            return self.run
         except Exception as e:
             self.run.mark_failed(str(e))
-            print(f"\n✗ Evolution failed: {e}")
+            print(f"\nEvolution failed: {e}")
             raise
         
         return self.run
@@ -169,6 +201,8 @@ class EvolutionLoop:
         # Generate candidates
         candidate_records = []
         for i in range(self.config.candidates_per_generation):
+            self._check_cancelled()
+            self._progress("evaluating_candidates", gen_num, i)
             print(f"  Generating candidate {i+1}/{self.config.candidates_per_generation}...")
             candidate_id = f"gen{gen_num}_cand{i+1}"
             
@@ -198,7 +232,10 @@ class EvolutionLoop:
                     "error_type": type(e).__name__,
                     "error_message": str(e),
                 })
-                print(f"  ✗ Failed: {e}")
+                print(f"  Failed: {e}")
+
+            self._check_cancelled()
+            self._progress("evaluating_candidates", gen_num, i + 1)
         
         # Build generation record
         return self._build_generation_record(gen_num, candidate_records)
@@ -263,73 +300,32 @@ class EvolutionLoop:
                 error_message=error_message,
             )
         
-        # Create scoring function
-        try:
-            scoring_fn = create_scoring_function(source_code)
-        except Exception as e:
-            return CandidateRecord(
-                candidate_id=candidate_id,
-                generation=generation,
-                source_code=source_code,
-                is_valid=False,
-                error_type="AdapterError",
-                error_message=str(e),
-            )
-        
-        # Evaluate on training instances
-        start_time = time.time()
-        total_distance = 0.0
-        successful_evals = 0
-        evaluation_errors = []
-        
-        for instance in self.training_instances:
-            try:
-                # Use harness to build route
-                from engine.heuristics import RouteHarness
-                from engine.instances import compute_distance_matrix
-                
-                harness = RouteHarness()
-                
-                # Convert instance to distance matrix
-                locations = instance.get_all_locations()
-                distance_matrix = compute_distance_matrix(locations)
-                
-                # Build route using heuristic
-                route_result = harness.build_route(
-                    heuristic=scoring_fn,
-                    distance_matrix=distance_matrix,
-                    n_stops=instance.n_stops,
-                    algorithm_name=candidate_id
-                )
-                
-                total_distance += route_result.total_distance
-                successful_evals += 1
-                
-            except Exception as e:
-                # Record error but continue with other instances
-                error_msg = f"{type(e).__name__}: {str(e)}"
-                evaluation_errors.append(error_msg)
-                continue
-        
-        eval_time = time.time() - start_time
-        
-        if successful_evals == 0:
-            # All evaluations failed - report the errors
-            error_summary = "; ".join(set(evaluation_errors[:3]))  # First 3 unique errors
+        # Use the existing evaluator and strict fitness policy. Partial
+        # successes must not gain an advantage by omitting harder instances.
+        result = self.evaluator.evaluate_candidate(
+            candidate=candidate,
+            instances=self.training_instances,
+            candidate_id=candidate_id,
+        )
+        fitness_score = self.fitness_fn.calculate(result)
+        if not math.isfinite(fitness_score):
+            errors = [
+                f"seed {r.instance_seed}: {r.error_message or r.status.value}"
+                for r in result.per_instance_results if r.error_message or r.distance is None
+            ]
             return CandidateRecord(
                 candidate_id=candidate_id,
                 generation=generation,
                 source_code=source_code,
                 is_valid=False,
                 error_type="EvaluationError",
-                error_message=f"All route evaluations failed: {error_summary}",
+                error_message=(
+                    f"Training evaluation requires success on every instance "
+                    f"({result.successful_evaluations}/{result.instances_evaluated} succeeded): "
+                    + "; ".join(errors)
+                ),
+                evaluation_time=result.total_execution_time,
             )
-        
-        avg_distance = total_distance / successful_evals
-        
-        # Calculate fitness - for evolution, we use distance directly as fitness
-        # (lower distance = better fitness)
-        fitness_score = avg_distance
         
         return CandidateRecord(
             candidate_id=candidate_id,
@@ -337,8 +333,8 @@ class EvolutionLoop:
             source_code=source_code,
             is_valid=True,
             fitness_score=fitness_score,
-            avg_route_distance=avg_distance,
-            evaluation_time=eval_time,
+            avg_route_distance=result.mean_distance,
+            evaluation_time=result.total_execution_time,
         )
     
     def _build_generation_record(
@@ -356,21 +352,32 @@ class EvolutionLoop:
             Complete GenerationRecord
         """
         # Filter valid candidates
-        valid_candidates = [c for c in candidates if c.is_valid]
+        valid_candidates = [
+            c for c in candidates
+            if c.is_valid and c.fitness_score is not None and math.isfinite(c.fitness_score)
+        ]
         
         # Find best in this generation
         best_this_gen_id = None
         best_this_gen_fitness = None
         
         if valid_candidates:
-            best = max(valid_candidates, key=lambda c: c.fitness_score)
+            best = min(valid_candidates, key=lambda c: (c.fitness_score, c.candidate_id))
             best_this_gen_id = best.candidate_id
             best_this_gen_fitness = best.fitness_score
             
             # Update best-so-far
-            if self.best_fitness is None or best.fitness_score > self.best_fitness:
+            if self.best_fitness is None or best.fitness_score < self.best_fitness:
                 self.best_fitness = best.fitness_score
+                self.best_candidate_id = best.candidate_id
                 self.best_candidate_code = best.source_code
+
+        # Retain measured elites across generations without duplicating them
+        # in generation history or reducing the configured new-candidate count.
+        pool = {c.candidate_id: c for c in self.retained_candidates + valid_candidates}
+        self.retained_candidates = sorted(
+            pool.values(), key=lambda c: (c.fitness_score, c.candidate_id)
+        )[:self.config.retained_candidates]
         
         # Calculate statistics
         avg_fitness = None
@@ -382,7 +389,7 @@ class EvolutionLoop:
             candidates=candidates,
             best_candidate_id=best_this_gen_id,
             best_fitness=best_this_gen_fitness,
-            best_so_far_id=f"gen{gen_num}_best" if self.best_candidate_code else None,
+            best_so_far_id=self.best_candidate_id,
             best_so_far_fitness=self.best_fitness,
             num_valid=len(valid_candidates),
             num_invalid=len(candidates) - len(valid_candidates),
@@ -403,22 +410,25 @@ class EvolutionLoop:
         # Get valid candidates from last generation
         valid_candidates = [c for c in last_gen.candidates if c.is_valid]
         
-        if not valid_candidates:
-            return {
-                "feedback": "All candidates in previous generation were invalid. Try simpler heuristics.",
-                "context": {"num_invalid": last_gen.num_invalid},
-            }
-        
         # Build feedback string
-        feedback_lines = []
+        feedback_lines = ["Fitness is mean route distance; lower is better."]
+        if not valid_candidates:
+            feedback_lines.append("All new candidates in the previous generation were invalid. Try simpler heuristics.")
         
-        if last_gen.best_fitness:
+        if last_gen.best_fitness is not None:
             feedback_lines.append(f"Best fitness in last generation: {last_gen.best_fitness:.2f}")
         
-        if self.best_fitness:
+        if self.best_fitness is not None:
             feedback_lines.append(f"Best fitness so far: {self.best_fitness:.2f}")
         
         feedback_lines.append(f"Valid candidates: {last_gen.num_valid}/{len(last_gen.candidates)}")
+
+        for candidate in self.retained_candidates:
+            feedback_lines.append(
+                f"Retained candidate {candidate.candidate_id}, mean distance "
+                f"{candidate.fitness_score:.6f}. Refine or combine its scoring logic:\n"
+                f"```python\n{candidate.source_code}\n```"
+            )
         
         return {
             "feedback": "\n".join(feedback_lines),
@@ -434,92 +444,63 @@ class EvolutionLoop:
         Returns:
             TestSetEvaluation with baseline comparisons
         """
-        if not self.best_candidate_code:
+        if not self.best_candidate_code or not self.best_candidate_id:
             raise ValueError("No valid candidate to evaluate on test set")
-        
-        # Create test evaluator
-        from engine.heuristics import RouteHarness
-        from engine.baselines import nearest_neighbor, nearest_neighbor_with_2opt
-        from engine.instances import compute_distance_matrix
-        
-        harness = RouteHarness()
-        
-        # Evaluate evolved candidate
-        scoring_fn = create_scoring_function(self.best_candidate_code)
-        start_time = time.time()
-        
-        evolved_distances = []
-        for instance in self.test_instances:
-            try:
-                locations = instance.get_all_locations()
-                distance_matrix = compute_distance_matrix(locations)
-                
-                route_result = harness.build_route(
-                    heuristic=scoring_fn,
-                    distance_matrix=distance_matrix,
-                    n_stops=instance.n_stops
+
+        from engine.sandbox.models import CandidateHeuristic
+
+        # All three methods see the complete, identical held-out batch.
+        evolved = self.evaluator.evaluate_candidate(
+            candidate=CandidateHeuristic(source_code=self.best_candidate_code),
+            instances=self.test_instances,
+            candidate_id=self.best_candidate_id,
+        )
+        nn = self.evaluator.evaluate_baseline_nn(self.test_instances)
+        two_opt = self.evaluator.evaluate_baseline_2opt(
+            self.test_instances, max_2opt_iterations=1000
+        )
+
+        # The existing result schema represents complete comparisons only.
+        # Fail the run explicitly rather than publish subset means or infinity.
+        for result in (evolved, nn, two_opt):
+            if not math.isfinite(self.fitness_fn.calculate(result)):
+                errors = [
+                    f"seed {r.instance_seed}: {r.error_message or r.status.value}"
+                    for r in result.per_instance_results if r.error_message or r.distance is None
+                ]
+                raise ValueError(
+                    f"Held-out evaluation failed for {result.candidate_id}: "
+                    f"{result.successful_evaluations}/{result.instances_evaluated} succeeded; "
+                    + "; ".join(errors)
                 )
-                evolved_distances.append(route_result.total_distance)
-            except Exception:
-                continue
-        
-        evolved_time = time.time() - start_time
-        evolved_avg = sum(evolved_distances) / len(evolved_distances) if evolved_distances else float('inf')
-        
-        print(f"Evolved: {evolved_avg:.2f}")
-        
-        # Compare with baselines
-        baselines = []
-        
-        # Nearest Neighbor
-        start_time = time.time()
-        nn_distances = []
-        for instance in self.test_instances:
-            locations = instance.get_all_locations()
-            distance_matrix = compute_distance_matrix(locations)
-            route = nearest_neighbor(distance_matrix)
-            nn_distances.append(route.total_distance)
-        nn_time = time.time() - start_time
-        nn_avg = sum(nn_distances) / len(nn_distances) if nn_distances else float('inf')
-        
-        baselines.append(BaselineComparison(
-            algorithm="nearest_neighbor",
-            avg_route_distance=nn_avg,
-            evaluation_time=nn_time,
-        ))
-        print(f"Nearest Neighbor: {nn_avg:.2f}")
-        
-        # 2-Opt
-        start_time = time.time()
-        two_opt_distances = []
-        for instance in self.test_instances:
-            locations = instance.get_all_locations()
-            distance_matrix = compute_distance_matrix(locations)
-            route = nearest_neighbor_with_2opt(distance_matrix)
-            two_opt_distances.append(route.total_distance)
-        two_opt_time = time.time() - start_time
-        two_opt_avg = sum(two_opt_distances) / len(two_opt_distances) if two_opt_distances else float('inf')
-        
-        baselines.append(BaselineComparison(
-            algorithm="two_opt",
-            avg_route_distance=two_opt_avg,
-            evaluation_time=two_opt_time,
-        ))
-        print(f"2-Opt: {two_opt_avg:.2f}")
-        
-        # Calculate improvements (can be negative!)
-        improvement_vs_nn = ((nn_avg - evolved_avg) / nn_avg) * 100 if nn_avg > 0 else 0
-        improvement_vs_2opt = ((two_opt_avg - evolved_avg) / two_opt_avg) * 100 if two_opt_avg > 0 else 0
-        
-        print(f"Improvement vs NN: {improvement_vs_nn:+.1f}%")
-        print(f"Improvement vs 2-Opt: {improvement_vs_2opt:+.1f}%")
+
+        evolved_avg = evolved.mean_distance
+        baselines = [
+            BaselineComparison(
+                algorithm=name,
+                avg_route_distance=result.mean_distance,
+                evaluation_time=result.total_execution_time,
+            )
+            for name, result in (("nearest_neighbor", nn), ("two_opt", two_opt))
+        ]
+
+        # A positive candidate cost against a zero-cost baseline has no finite
+        # percentage improvement; do not mislabel it as zero improvement.
+        improvements = []
+        for result in (nn, two_opt):
+            if result.mean_distance == 0:
+                if evolved_avg != 0:
+                    raise ValueError("Improvement percentage is undefined for a zero-distance baseline")
+                improvements.append(0.0)
+            else:
+                improvements.append((result.mean_distance - evolved_avg) / result.mean_distance * 100)
         
         return TestSetEvaluation(
-            candidate_id=self.run.run_id + "_best",
+            candidate_id=self.best_candidate_id,
             test_instances_count=len(self.test_instances),
             evolved_avg_distance=evolved_avg,
-            evolved_evaluation_time=evolved_time,
+            evolved_evaluation_time=evolved.total_execution_time,
             baselines=baselines,
-            improvement_vs_nn_percent=improvement_vs_nn,
-            improvement_vs_2opt_percent=improvement_vs_2opt,
+            improvement_vs_nn_percent=improvements[0],
+            improvement_vs_2opt_percent=improvements[1],
         )

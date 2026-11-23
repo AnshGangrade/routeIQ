@@ -244,7 +244,7 @@ class TestImprovementCalculation:
         
         # Non-zero candidate, zero baseline
         improvement = evaluator._calculate_improvement(100.0, 0.0)
-        assert improvement == pytest.approx(-100.0)
+        assert improvement is None  # Percentage is undefined against a zero baseline.
 
 
 # ============================================================================

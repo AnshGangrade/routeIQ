@@ -118,9 +118,10 @@ class ReplayLLMClient:
         Generate a response by loading from fixture.
         
         Fixture selection:
-        1. If request.generation_id is set, load fixture with that name
-        2. If request.metadata["fixture_name"] is set, use that
-        3. Otherwise raise error (replay mode requires explicit fixture)
+        1. Use request.metadata["fixture_name"] when explicitly supplied
+        2. Cycle the configured replay_fixtures sequence, when present
+        3. Otherwise load the fixture named by request.generation_id
+        4. Raise an error if no fixture identifier is available
         
         Args:
             request: Generation request
@@ -139,6 +140,8 @@ class ReplayLLMClient:
         
         if "fixture_name" in request.metadata:
             fixture_name = request.metadata["fixture_name"]
+        elif self.config.replay_fixtures:
+            fixture_name = self.config.replay_fixtures[(self._call_count - 1) % len(self.config.replay_fixtures)]
         elif request.generation_id:
             fixture_name = request.generation_id
         
@@ -150,7 +153,7 @@ class ReplayLLMClient:
             )
         
         # Load fixture
-        response = self._load_fixture(fixture_name)
+        response = self._load_fixture(fixture_name).model_copy(deep=True)
         
         # Update metadata
         response.metadata["mode"] = "replay"

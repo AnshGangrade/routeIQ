@@ -16,12 +16,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from engine.evolution import EvolutionConfig, EvolutionLoop, EvolutionPersistence
-from engine.llm.client import LLMClient
+from engine.llm import create_client, load_config_from_env
 from engine.llm.mock import MockLLMClient
 from engine.llm.models import LLMConfig, LLMProvider
 
 
-def parse_args():
+def parse_args(argv=None):
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Run RouteIQ evolution pipeline",
@@ -112,13 +112,21 @@ def parse_args():
         help="Directory for saving runs",
     )
     
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main():
+def main(argv=None):
     """Main entry point."""
-    args = parse_args()
+    args = parse_args(argv)
     
+    try:
+        return run(args)
+    except (ValueError, RuntimeError):
+        print("Invalid evolution configuration or unavailable client.")
+        return 2
+
+
+def run(args):
     # Create configuration
     config = EvolutionConfig(
         num_generations=args.gens,
@@ -154,20 +162,15 @@ def main():
         llm_client = MockLLMClient(llm_config)
     elif config.llm_mode == "replay":
         print("Using replay LLM client (cached responses)")
-        llm_client = LLMClient(mode="replay")
+        llm_client = create_client(LLMConfig(provider=LLMProvider.REPLAY, base_url="replay://local", model="replay-v1", replay_fixtures=["simple_nearest", "weighted_heuristic"]))
     else:
         print("Using live LLM client (requires API key)")
-        llm_client = LLMClient(mode="live")
-    
-    # Create evolution loop
-    loop = EvolutionLoop(
-        config=config,
-        llm_client=llm_client,
-    )
+        llm_client = create_client(load_config_from_env())
     
     # Run evolution
     print("\nStarting evolution...\n")
     try:
+        loop = EvolutionLoop(config=config, llm_client=llm_client)
         run = loop.run_evolution()
         
         # Save results
@@ -187,7 +190,7 @@ def main():
         print(f"Valid: {summary['total_valid']} ({summary['validity_rate']:.1%})")
         print(f"Invalid: {summary['total_invalid']}")
         
-        if run.best_training_fitness:
+        if run.best_training_fitness is not None:
             print(f"\nBest training fitness: {run.best_training_fitness:.2f}")
         
         if run.test_evaluation:
@@ -201,16 +204,17 @@ def main():
         print(f"\nRun saved to: {args.runs_dir}/{run.run_id}.json")
         print("=" * 60)
         
-        return 0
+        return 0 if run.status == "completed" else 1
         
     except KeyboardInterrupt:
         print("\n\nEvolution interrupted by user")
         return 1
     except Exception as e:
-        print(f"\n\nEvolution failed: {e}")
-        import traceback
-        traceback.print_exc()
+        print("\n\nEvolution failed; check configuration and candidate validity.")
         return 1
+
+    finally:
+        llm_client.close()
 
 
 if __name__ == "__main__":

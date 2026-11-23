@@ -30,9 +30,14 @@ class InstanceEvaluation(BaseModel):
         error_message: Detailed error if failed
     """
     instance_seed: int = Field(..., description="Instance generation seed")
+    instance_fingerprint: Optional[str] = Field(None, description="Exact instance identity for comparison")
     n_stops: int = Field(..., ge=0, description="Number of delivery stops")
     status: EvaluationStatus = Field(..., description="Evaluation outcome")
     route: Optional[List[int]] = Field(None, description="Constructed route")
+    fleet_routes: Optional[List[List[int]]] = Field(None, description="Routes indexed by driver slot")
+    num_drivers: int = Field(1, ge=1)
+    distance_units: str = "map_units"
+    longest_route_distance: Optional[float] = Field(None, ge=0)
     distance: Optional[float] = Field(None, ge=0, description="Route distance")
     execution_time: Optional[float] = Field(None, ge=0, description="Execution time (seconds)")
     error_message: Optional[str] = Field(None, description="Error details if failed")

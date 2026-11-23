@@ -52,8 +52,9 @@ class OSRMClient:
     
     def _cache_key(self, coordinates: List[Tuple[float, float]]) -> str:
         """Generate cache key for coordinates."""
-        coord_str = json.dumps(coordinates, sort_keys=True)
-        return hashlib.md5(coord_str.encode()).hexdigest()
+        coord_str = json.dumps([self.config.provider.value, self.config.base_url.rstrip('/'),
+                               'driving', 'distance,duration', coordinates], sort_keys=True)
+        return hashlib.sha256(coord_str.encode()).hexdigest()
     
     def _load_from_cache(self, cache_key: str) -> Optional[RoadDistanceResult]:
         """Load result from cache if available."""
@@ -141,7 +142,8 @@ class OSRMClient:
             
             # Check OSRM response code
             if data.get("code") != "Ok":
-                error_msg = data.get("message", "Unknown OSRM error")
+                error_msg = ("Invalid OSRM query" if data.get("code") in ("InvalidQuery", "InvalidValue", "InvalidOptions")
+                             else "Routing provider rejected the table request")
                 return RoadDistanceResult(
                     provider=self.config.provider.value,
                     error=f"OSRM error: {error_msg}",
@@ -178,18 +180,74 @@ class OSRMClient:
         except httpx.HTTPStatusError as e:
             return RoadDistanceResult(
                 provider=self.config.provider.value,
-                error=f"HTTP {e.response.status_code}: {e.response.text[:200]}"
+                error=f"HTTP {e.response.status_code}: Road routing request failed"
             )
         except httpx.RequestError as e:
             return RoadDistanceResult(
                 provider=self.config.provider.value,
-                error=f"Request failed: {type(e).__name__}: {str(e)}"
+                error=f"Request failed: {type(e).__name__}"
             )
         except Exception as e:
             return RoadDistanceResult(
                 provider=self.config.provider.value,
-                error=f"Unexpected error: {type(e).__name__}: {str(e)}"
+                error="Road routing connection failed or returned an invalid response"
             )
+
+
+    def get_route(
+        self,
+        coordinates: List[Tuple[float, float]],
+        overview: str = "full"
+    ) -> dict:
+        """
+        Get route geometry for a sequence of coordinates.
+        
+        Args:
+            coordinates: Ordered list of (longitude, latitude) tuples
+            overview: 'full', 'simplified', or 'false'
+            
+        Returns:
+            Dict with route geometry and metadata
+        """
+        if len(coordinates) < 2:
+            return {"error": "Need at least 2 coordinates for a route"}
+        
+        # Build OSRM route request
+        # Format: /route/v1/driving/lon1,lat1;lon2,lat2;...
+        coord_str = ";".join(f"{lon:.6f},{lat:.6f}" for lon, lat in coordinates)
+        url = f"{self.config.base_url}/route/v1/driving/{coord_str}"
+        
+        params = {
+            "overview": overview,
+            "geometries": "geojson"  # Get GeoJSON format
+        }
+        
+        try:
+            response = self.client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            
+            if data.get("code") != "Ok":
+                return {"error": "OSRM error: Routing provider rejected the route request"}
+            
+            routes = data.get("routes", [])
+            if not routes:
+                return {"error": "No route found"}
+            
+            route = routes[0]
+            geometry = route.get("geometry", {}).get("coordinates", [])
+            
+            # Convert from [lon, lat] to [lat, lon] for Leaflet
+            geometry_latlng = [[coord[1], coord[0]] for coord in geometry]
+            
+            return {
+                "geometry": geometry_latlng,
+                "distance": route.get("distance"),  # meters
+                "duration": route.get("duration"),  # seconds
+            }
+            
+        except Exception as e:
+            return {"error": f"Route request failed: {type(e).__name__}"}
 
 
 def get_osrm_table(

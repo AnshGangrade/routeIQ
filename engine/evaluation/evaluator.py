@@ -1,8 +1,8 @@
 """
 Heuristic evaluator for benchmark testing.
 
-Evaluates candidate heuristics on synthetic instances and compares
-with baseline algorithms.
+Evaluates canonical fleet problems without reconstructing their matrices.
+Coordinate-only DeliveryInstance inputs retain the legacy single-route path.
 """
 
 import time
@@ -16,10 +16,13 @@ from .models import (
     ComparisonMetrics,
     EvaluationStatus
 )
-from engine.instances import DeliveryInstance, compute_distance_matrix, validate_route
+from engine.instances import DeliveryInstance, validate_route
 from engine.heuristics import HeuristicContext, RouteHarness
 from engine.baselines import nearest_neighbor, nearest_neighbor_with_2opt
 from engine.sandbox import CandidateHeuristic, HeuristicValidator, create_scoring_function
+from engine.routing.problem import FleetProblem
+from engine.routing.adapters import problem_from_instance
+from engine.routing.fleet import FleetRouter
 
 
 class HeuristicEvaluator:
@@ -70,11 +73,16 @@ class HeuristicEvaluator:
         self.validator = validator or HeuristicValidator()
         self.timeout = timeout
         self.harness = RouteHarness()
+
+    @staticmethod
+    def _fingerprint(instance):
+        problem = instance if isinstance(instance, FleetProblem) else problem_from_instance(instance)
+        return problem.fingerprint
     
     def evaluate_candidate(
         self,
         candidate: CandidateHeuristic,
-        instances: List[DeliveryInstance],
+        instances: List[DeliveryInstance | FleetProblem],
         candidate_id: str,
         algorithm_name: Optional[str] = None
     ) -> BenchmarkResult:
@@ -138,7 +146,7 @@ class HeuristicEvaluator:
     def _evaluate_on_instance(
         self,
         scoring_function: Callable,
-        instance: DeliveryInstance,
+        instance: DeliveryInstance | FleetProblem,
         algorithm_name: str
     ) -> InstanceEvaluation:
         """
@@ -152,12 +160,15 @@ class HeuristicEvaluator:
         Returns:
             InstanceEvaluation with result or failure details
         """
+        if isinstance(instance, FleetProblem):
+            return self._evaluate_fleet_problem(instance, algorithm_name,
+                lambda router: router.route_fleet_with_heuristic(scoring_function, algorithm_name))
         start_time = time.time()
-        
+
         try:
+            # Explicit legacy synthetic adapter (single route, historical ordering).
             # Compute distance matrix
-            locations = instance.get_all_locations()
-            distance_matrix = compute_distance_matrix(locations)
+            distance_matrix = problem_from_instance(instance).matrix_array()
             
             # Build route using harness
             result = self.harness.build_route(
@@ -177,6 +188,7 @@ class HeuristicEvaluator:
                 execution_time = time.time() - start_time
                 return InstanceEvaluation(
                     instance_seed=instance.seed,
+                    instance_fingerprint=self._fingerprint(instance),
                     n_stops=instance.n_stops,
                     status=EvaluationStatus.INVALID_ROUTE,
                     route=result.route,
@@ -189,6 +201,7 @@ class HeuristicEvaluator:
             execution_time = time.time() - start_time
             return InstanceEvaluation(
                 instance_seed=instance.seed,
+                instance_fingerprint=self._fingerprint(instance),
                 n_stops=instance.n_stops,
                 status=EvaluationStatus.SUCCESS,
                 route=result.route,
@@ -202,6 +215,7 @@ class HeuristicEvaluator:
             execution_time = time.time() - start_time
             return InstanceEvaluation(
                 instance_seed=instance.seed,
+                instance_fingerprint=self._fingerprint(instance),
                 n_stops=instance.n_stops,
                 status=EvaluationStatus.EXECUTION_FAILED,
                 route=None,
@@ -215,6 +229,7 @@ class HeuristicEvaluator:
             execution_time = time.time() - start_time
             return InstanceEvaluation(
                 instance_seed=instance.seed,
+                instance_fingerprint=self._fingerprint(instance),
                 n_stops=instance.n_stops,
                 status=EvaluationStatus.CONSTRUCTION_FAILED,
                 route=None,
@@ -223,11 +238,28 @@ class HeuristicEvaluator:
                 error_message=f"Construction failed: {type(e).__name__}: {e}"
             )
     
+    def _evaluate_fleet_problem(self, problem, algorithm_name, solve):
+        start = time.monotonic()
+        fields = dict(instance_seed=problem.seed, instance_fingerprint=problem.fingerprint,
+                      n_stops=problem.n_stops, num_drivers=problem.num_drivers,
+                      distance_units=problem.distance_units)
+        try:
+            result = solve(FleetRouter(problem))
+            return InstanceEvaluation(**fields, status=EvaluationStatus.SUCCESS,
+                route=result.driver_routes[0].route if problem.num_drivers == 1 else None,
+                fleet_routes=[r.route for r in result.driver_routes],
+                distance=result.total_distance, longest_route_distance=result.longest_route_distance,
+                execution_time=time.monotonic() - start)
+        except Exception as exc:
+            return InstanceEvaluation(**fields, status=EvaluationStatus.CONSTRUCTION_FAILED,
+                execution_time=time.monotonic() - start,
+                error_message=f"Fleet construction failed: {type(exc).__name__}")
+
     def _create_validation_failed_result(
         self,
         candidate_id: str,
         algorithm_name: str,
-        instances: List[DeliveryInstance],
+        instances: List[DeliveryInstance | FleetProblem],
         validation_errors: List[str]
     ) -> BenchmarkResult:
         """Create a BenchmarkResult for a candidate that failed validation."""
@@ -236,7 +268,10 @@ class HeuristicEvaluator:
         instance_results = [
             InstanceEvaluation(
                 instance_seed=inst.seed,
+                instance_fingerprint=self._fingerprint(inst),
                 n_stops=inst.n_stops,
+                num_drivers=inst.num_drivers if isinstance(inst, FleetProblem) else 1,
+                distance_units=inst.distance_units if isinstance(inst, FleetProblem) else "map_units",
                 status=EvaluationStatus.VALIDATION_FAILED,
                 route=None,
                 distance=None,
@@ -279,6 +314,8 @@ class HeuristicEvaluator:
             BenchmarkResult with aggregated metrics
         """
         total_instances = len(instance_results)
+        if len({r.distance_units for r in instance_results}) > 1:
+            raise ValueError("Cannot aggregate distances with different units")
         successful = [r for r in instance_results if r.status == EvaluationStatus.SUCCESS]
         failed = [r for r in instance_results if r.status != EvaluationStatus.SUCCESS]
         
@@ -319,7 +356,7 @@ class HeuristicEvaluator:
     
     def evaluate_baseline_nn(
         self,
-        instances: List[DeliveryInstance]
+        instances: List[DeliveryInstance | FleetProblem]
     ) -> BenchmarkResult:
         """
         Evaluate Nearest Neighbor baseline on instances.
@@ -333,12 +370,15 @@ class HeuristicEvaluator:
         instance_results = []
         
         for instance in instances:
+            if isinstance(instance, FleetProblem):
+                instance_results.append(self._evaluate_fleet_problem(instance, "Nearest Neighbor",
+                    lambda router: router._route_fleet_with_baseline("Nearest Neighbor", nearest_neighbor)))
+                continue
             start_time = time.time()
             
             try:
                 # Compute distance matrix
-                locations = instance.get_all_locations()
-                distance_matrix = compute_distance_matrix(locations)
+                distance_matrix = problem_from_instance(instance).matrix_array()
                 
                 # Run Nearest Neighbor
                 result = nearest_neighbor(distance_matrix)
@@ -352,6 +392,7 @@ class HeuristicEvaluator:
                 execution_time = time.time() - start_time
                 instance_results.append(InstanceEvaluation(
                     instance_seed=instance.seed,
+                    instance_fingerprint=self._fingerprint(instance),
                     n_stops=instance.n_stops,
                     status=EvaluationStatus.SUCCESS,
                     route=result.route,
@@ -364,6 +405,7 @@ class HeuristicEvaluator:
                 execution_time = time.time() - start_time
                 instance_results.append(InstanceEvaluation(
                     instance_seed=instance.seed,
+                    instance_fingerprint=self._fingerprint(instance),
                     n_stops=instance.n_stops,
                     status=EvaluationStatus.CONSTRUCTION_FAILED,
                     route=None,
@@ -380,15 +422,17 @@ class HeuristicEvaluator:
     
     def evaluate_baseline_2opt(
         self,
-        instances: List[DeliveryInstance],
-        max_2opt_iterations: int = 100
+        instances: List[DeliveryInstance | FleetProblem],
+        max_2opt_iterations: int | None = None
     ) -> BenchmarkResult:
         """
         Evaluate Nearest Neighbor + 2-Opt baseline on instances.
         
         Args:
             instances: List of delivery instances
-            max_2opt_iterations: Maximum 2-Opt iterations per instance
+            max_2opt_iterations: Maximum iterations per driver. None preserves the
+                legacy DeliveryInstance default (100); FleetProblem uses the
+                application default (1000).
             
         Returns:
             BenchmarkResult for NN + 2-Opt
@@ -396,17 +440,22 @@ class HeuristicEvaluator:
         instance_results = []
         
         for instance in instances:
+            if isinstance(instance, FleetProblem):
+                iterations = 1000 if max_2opt_iterations is None else max_2opt_iterations
+                instance_results.append(self._evaluate_fleet_problem(instance, "Nearest Neighbor + 2-Opt",
+                    lambda router: router._route_fleet_with_baseline("Nearest Neighbor + 2-Opt",
+                        lambda matrix: nearest_neighbor_with_2opt(matrix, max_2opt_iterations=iterations))))
+                continue
             start_time = time.time()
             
             try:
                 # Compute distance matrix
-                locations = instance.get_all_locations()
-                distance_matrix = compute_distance_matrix(locations)
+                distance_matrix = problem_from_instance(instance).matrix_array()
                 
                 # Run NN + 2-Opt
                 result = nearest_neighbor_with_2opt(
                     distance_matrix,
-                    max_2opt_iterations=max_2opt_iterations
+                    max_2opt_iterations=100 if max_2opt_iterations is None else max_2opt_iterations
                 )
                 
                 # Validate route
@@ -418,6 +467,7 @@ class HeuristicEvaluator:
                 execution_time = time.time() - start_time
                 instance_results.append(InstanceEvaluation(
                     instance_seed=instance.seed,
+                    instance_fingerprint=self._fingerprint(instance),
                     n_stops=instance.n_stops,
                     status=EvaluationStatus.SUCCESS,
                     route=result.route,
@@ -430,6 +480,7 @@ class HeuristicEvaluator:
                 execution_time = time.time() - start_time
                 instance_results.append(InstanceEvaluation(
                     instance_seed=instance.seed,
+                    instance_fingerprint=self._fingerprint(instance),
                     n_stops=instance.n_stops,
                     status=EvaluationStatus.CONSTRUCTION_FAILED,
                     route=None,
@@ -447,8 +498,8 @@ class HeuristicEvaluator:
     def compare_with_baselines(
         self,
         candidate_result: BenchmarkResult,
-        instances: List[DeliveryInstance],
-        max_2opt_iterations: int = 100
+        instances: List[DeliveryInstance | FleetProblem],
+        max_2opt_iterations: int | None = None
     ) -> ComparisonMetrics:
         """
         Compare candidate with both baseline algorithms.
@@ -463,20 +514,34 @@ class HeuristicEvaluator:
         Returns:
             ComparisonMetrics with improvement percentages
         """
+        expected = [self._fingerprint(instance) for instance in instances]
+        actual = [result.instance_fingerprint for result in candidate_result.per_instance_results]
+        if actual != expected:
+            raise ValueError("Candidate results must match the comparison instances in order")
+
         # Evaluate baselines on same instances
         nn_result = self.evaluate_baseline_nn(instances)
         two_opt_result = self.evaluate_baseline_2opt(instances, max_2opt_iterations)
         
-        # Calculate improvement percentages
+        # Subset means are useful diagnostics, but cannot support aggregate
+        # improvement claims against a baseline evaluated on the full batch.
+        complete = all(
+            result.instances_evaluated == len(instances)
+            and result.successful_evaluations == len(instances)
+            and result.failed_evaluations == 0
+            and result.mean_distance is not None
+            and np.isfinite(result.mean_distance)
+            for result in (candidate_result, nn_result, two_opt_result)
+        ) and bool(instances)
         improvement_vs_nn = self._calculate_improvement(
             candidate_mean=candidate_result.mean_distance,
             baseline_mean=nn_result.mean_distance
-        )
+        ) if complete else None
         
         improvement_vs_2opt = self._calculate_improvement(
             candidate_mean=candidate_result.mean_distance,
             baseline_mean=two_opt_result.mean_distance
-        )
+        ) if complete else None
         
         # Build per-instance comparisons
         per_instance = self._build_per_instance_comparisons(
@@ -523,7 +588,7 @@ class HeuristicEvaluator:
                 return 0.0
             else:
                 # Candidate is worse (has non-zero distance vs zero baseline)
-                return -100.0
+                return None
         
         improvement = ((baseline_mean - candidate_mean) / baseline_mean) * 100.0
         return improvement

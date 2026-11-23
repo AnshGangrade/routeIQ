@@ -550,9 +550,61 @@ class TestEvolutionLoop:
         history = run.get_convergence_history()
         assert len(history) > 0
         
-        # Best-so-far should be monotonically non-decreasing
+        # Distance is minimized: best-so-far must be non-increasing.
         for i in range(1, len(history)):
-            assert history[i] >= history[i-1]
+            assert history[i] <= history[i-1]
+    
+    def test_evolution_with_zero_valid_candidates(self):
+        """Test that evolution handles zero valid candidates gracefully."""
+        from engine.llm.mock import MockLLMClient
+        from engine.llm.models import LLMConfig, LLMProvider
+        from unittest.mock import Mock, patch
+        
+        config = EvolutionConfig(
+            num_generations=2,
+            candidates_per_generation=2,
+            training_instance_count=2,
+            test_instance_count=1,
+            num_stops=10,
+        )
+        
+        # Create a mock client that returns invalid code
+        llm_config = LLMConfig(
+            provider=LLMProvider.MOCK,
+            base_url="mock://local",
+            model="mock-v1",
+        )
+        
+        # Patch the parser to always fail
+        with patch('engine.evolution.loop.parse_llm_response') as mock_parse:
+            mock_parse.return_value = Mock(
+                success=False,
+                errors=["Parse failed"],
+                source_code="",
+                function_name=None
+            )
+            
+            llm_client = MockLLMClient(llm_config)
+            loop = EvolutionLoop(config=config, llm_client=llm_client)
+            
+            # Run should fail gracefully
+            run = loop.run_evolution()
+            
+            # Should be marked as failed
+            assert run.status == "failed"
+            assert "no valid candidates" in run.error_message.lower()
+            
+            # Should have generations recorded
+            assert len(run.generations) == 2
+            
+            # All candidates should be invalid
+            for gen in run.generations:
+                assert gen.num_valid == 0
+                assert gen.num_invalid == 2
+            
+            # No best candidate
+            assert run.best_candidate_code is None
+            assert run.test_evaluation is None
 
 
 @pytest.mark.integration

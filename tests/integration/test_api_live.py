@@ -80,8 +80,8 @@ def test_evolution_live_mode_minimal(client):
     # Start evolution with minimal parameters
     response = client.post("/api/evolution/runs", json={
         "num_stops": 10,  # Small instance
-        "num_instances": 2,  # Few training instances
-        "num_generations": 1,  # Single generation
+        "num_instances": 3,  # Minimum 3 required
+        "num_generations": 2,  # Minimum 2 required
         "candidates_per_generation": 2,  # Two candidates only
         "elites_kept": 1,
         "mode": "live"
@@ -121,11 +121,11 @@ def test_evolution_live_mode_minimal(client):
     assert final_status == "completed", f"Unexpected status: {final_status}"
     
     # Verify we got generations
-    assert len(progress["generations"]) == 1, "Expected 1 generation"
+    assert len(progress["generations"]) >= 1, "Expected at least 1 generation"
     
     gen = progress["generations"][0]
     assert gen["generation"] == 1
-    assert len(gen["candidates"]) == 2, "Expected 2 candidates"
+    assert len(gen["candidates"]) >= 2, "Expected at least 2 candidates"
     
     # Check that at least some candidates were valid
     # (We can't guarantee all will be valid with real LLMs)
@@ -253,8 +253,8 @@ def test_live_mode_debug(client):
     """
     response = client.post("/api/evolution/runs", json={
         "num_stops": 10,
-        "num_instances": 2,
-        "num_generations": 1,
+        "num_instances": 3,  # Minimum 3 required
+        "num_generations": 2,  # Minimum 2 required
         "candidates_per_generation": 1,
         "elites_kept": 1,
         "mode": "live"

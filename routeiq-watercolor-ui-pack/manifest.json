@@ -1,0 +1,24 @@
+{
+  "source": "a_detailed_watercolor_style_ui_design_system_sty.png",
+  "source_size": [
+    1536,
+    1024
+  ],
+  "asset_count": 10,
+  "file_type": "PNG crops from generated visual design board",
+  "editable_svg": false,
+  "geographically_accurate_map": false,
+  "contains_japanese_motifs": false,
+  "assets": [
+    "brand/routeiq-header-and-city-art.png",
+    "map-reference/leaflet-map-visual-direction.png",
+    "markers/map-marker-set.png",
+    "routes/route-line-styles.png",
+    "icons/interface-icon-set.png",
+    "components/buttons-tabs-controls.png",
+    "components/metrics-and-data-table.png",
+    "patterns/map-textures-and-contours.png",
+    "states/empty-optimizing-error.png",
+    "states/loading-progress.png"
+  ]
+}

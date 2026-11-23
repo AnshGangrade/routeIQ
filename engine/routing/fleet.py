@@ -4,8 +4,10 @@ import numpy as np
 from typing import List, Callable
 from .models import DriverAssignment, DriverRoute, FleetResult
 from .assignment import assign_stops_by_sweep, validate_assignment
+from .problem import FleetProblem
+from .adapters import problem_from_instance
+from .validation import validate_fleet_solution
 from engine.instances.models import DeliveryInstance
-from engine.instances.distance import compute_distance_matrix, calculate_route_cost
 from engine.baselines import nearest_neighbor, nearest_neighbor_with_2opt
 from engine.heuristics import RouteHarness
 
@@ -23,33 +25,61 @@ class FleetRouter:
     for fair comparison.
     """
     
-    def __init__(self, instance: DeliveryInstance, num_drivers: int):
+    def __init__(
+        self,
+        instance: DeliveryInstance | FleetProblem,
+        num_drivers: int | None = None,
+        distance_matrix: np.ndarray | None = None
+    ):
         """
         Initialize fleet router.
         
         Args:
-            instance: Delivery instance with stops and depot
-            num_drivers: Number of drivers
+            instance: Canonical FleetProblem or legacy DeliveryInstance
+            num_drivers: Required only for legacy instances
+            distance_matrix: Pre-computed distance matrix (optional).
+                           If None, computes Euclidean distances from coordinates.
+                           If provided, must match instance size (n_stops + 1).
+                           A FleetProblem already supplies drivers and matrix;
+                           overrides are rejected.
             
         Raises:
-            ValueError: If num_drivers < 1
+            ValueError: If num_drivers < 1 or distance_matrix size mismatches
         """
-        if num_drivers < 1:
-            raise ValueError("num_drivers must be >= 1")
-        
-        self.instance = instance
-        self.num_drivers = num_drivers
-        
-        # Compute shared distance matrix once
-        locations = instance.get_all_locations()
-        self.distance_matrix = compute_distance_matrix(locations)
-        
-        # Assign stops deterministically
-        self.assignments = assign_stops_by_sweep(instance, num_drivers)
-        
-        # Validate assignments
-        validate_assignment(self.assignments, instance.n_stops)
-    
+        if isinstance(instance, FleetProblem):
+            if num_drivers is not None or distance_matrix is not None:
+                raise ValueError("A FleetProblem already defines drivers and its matrix")
+            problem = instance
+        else:
+            if distance_matrix is not None and not isinstance(distance_matrix, np.ndarray):
+                raise ValueError("Legacy distance matrix must be a NumPy array")
+            problem = problem_from_instance(instance, num_drivers, distance_matrix=distance_matrix)
+        self.problem = problem
+        self.num_drivers = problem.num_drivers
+        self.distance_matrix = problem.matrix_array()
+        self._indices = {node: i for i, node in enumerate(problem.node_ids)}
+        # Keep the historical angular round-robin assignment exactly as defined.
+        # Its coordinate requirement is explicit; do not invent geometry for matrices.
+        if problem.coordinates is not None:
+            from engine.instances.models import Point, Stop
+            points = [Point(x=x, y=y) for x, y in problem.coordinates]
+            self.instance = DeliveryInstance(
+                seed=problem.seed, depot=Stop(id=0, location=points[0]),
+                stops=[Stop(id=i, location=point) for i, point in enumerate(points[1:], 1)],
+                n_stops=problem.n_stops)
+            assignments = assign_stops_by_sweep(self.instance, self.num_drivers)
+            validate_assignment(assignments, problem.n_stops)
+            self.assignments = [DriverAssignment(
+                driver_id=a.driver_id, stop_ids=[problem.node_ids[i] for i in a.stop_ids])
+                for a in assignments]
+        elif self.num_drivers == 1 or problem.n_stops == 0:
+            self.instance = None
+            self.assignments = [DriverAssignment(driver_id=i,
+                stop_ids=list(problem.stop_ids) if i == 0 else [])
+                for i in range(self.num_drivers)]
+        else:
+            raise ValueError("Legacy multi-driver sweep assignment requires coordinates")
+
     def route_fleet_with_nearest_neighbor(self) -> FleetResult:
         """
         Route each driver using Nearest Neighbor.
@@ -62,7 +92,7 @@ class FleetRouter:
             route_fn=nearest_neighbor
         )
     
-    def route_fleet_with_2opt(self) -> FleetResult:
+    def route_fleet_with_2opt(self, max_2opt_iterations: int = 1000) -> FleetResult:
         """
         Route each driver using Nearest Neighbor + 2-Opt.
         
@@ -71,7 +101,7 @@ class FleetRouter:
         """
         return self._route_fleet_with_baseline(
             algorithm_name="2-Opt",
-            route_fn=nearest_neighbor_with_2opt
+            route_fn=lambda matrix: nearest_neighbor_with_2opt(matrix, max_2opt_iterations=max_2opt_iterations)
         )
     
     def route_fleet_with_heuristic(
@@ -98,7 +128,7 @@ class FleetRouter:
                 driver_routes.append(DriverRoute(
                     driver_id=assignment.driver_id,
                     assigned_stops=[],
-                    route=[0, 0],  # Depot only
+                    route=[self.problem.depot_id, self.problem.depot_id],  # Depot only
                     distance=0.0,
                     algorithm=algorithm_name
                 ))
@@ -106,8 +136,9 @@ class FleetRouter:
             
             # Build sub-distance matrix for this driver's stops
             # Include depot (index 0) and assigned stops
-            indices = [0] + assignment.stop_ids
-            sub_matrix = self.distance_matrix[np.ix_(indices, indices)]
+            indices = [self.problem.depot_id] + assignment.stop_ids
+            matrix_indices = [self._indices[node] for node in indices]
+            sub_matrix = self.distance_matrix[np.ix_(matrix_indices, matrix_indices)]
             
             # Route this driver's stops
             route_result = harness.build_route(
@@ -153,15 +184,16 @@ class FleetRouter:
                 driver_routes.append(DriverRoute(
                     driver_id=assignment.driver_id,
                     assigned_stops=[],
-                    route=[0, 0],
+                    route=[self.problem.depot_id, self.problem.depot_id],
                     distance=0.0,
                     algorithm=algorithm_name
                 ))
                 continue
             
             # Build sub-distance matrix for this driver's stops
-            indices = [0] + assignment.stop_ids
-            sub_matrix = self.distance_matrix[np.ix_(indices, indices)]
+            indices = [self.problem.depot_id] + assignment.stop_ids
+            matrix_indices = [self._indices[node] for node in indices]
+            sub_matrix = self.distance_matrix[np.ix_(matrix_indices, matrix_indices)]
             
             # Route this driver's stops
             route_result = route_fn(sub_matrix)
@@ -194,26 +226,18 @@ class FleetRouter:
         Returns:
             FleetResult with aggregated metrics
         """
-        total_distance = sum(route.distance for route in driver_routes)
-        
-        # Longest route distance (not duration/ETA)
-        longest_distance = max(
-            (route.distance for route in driver_routes),
-            default=0.0
-        )
-        
-        num_stops_assigned = sum(
-            len(route.assigned_stops) for route in driver_routes
-        )
-        
-        # Count visited stops (all stops in routes except depot appearances)
-        visited_stops = set()
-        for route in driver_routes:
-            for stop_id in route.route:
-                if stop_id != 0:  # Exclude depot
-                    visited_stops.add(stop_id)
-        num_stops_visited = len(visited_stops)
-        
+        if (len(driver_routes) != self.num_drivers
+                or {r.driver_id for r in driver_routes} != set(range(self.num_drivers))):
+            raise ValueError("Exactly one route per driver slot is required")
+        ordered = sorted(driver_routes, key=lambda r: r.driver_id)
+        measured = validate_fleet_solution(self.problem, [r.route for r in ordered])
+        for route, cost in zip(ordered, measured.route_distances):
+            route.distance = cost
+        total_distance = measured.total_distance
+        longest_distance = measured.longest_route_distance
+        num_stops_assigned = sum(len(r.assigned_stops) for r in ordered)
+        num_stops_visited = self.problem.n_stops
+
         return FleetResult(
             driver_routes=driver_routes,
             total_distance=total_distance,

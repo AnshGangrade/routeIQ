@@ -115,6 +115,8 @@ class HeuristicValidator:
         # Check for forbidden operations
         forbidden_errors = self._check_forbidden(tree)
         errors.extend(forbidden_errors)
+        from .language import check_tree
+        errors.extend(check_tree(tree, candidate.function_name))
         
         # Check for suspicious patterns (warnings)
         suspicious_warnings = self._check_suspicious(tree)

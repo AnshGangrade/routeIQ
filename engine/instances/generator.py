@@ -125,6 +125,13 @@ class InstanceGenerator:
             n_stops=n_stops
         )
     
+    def generate_problem(self, n_stops: int, num_drivers: int = 1, *,
+                         search_seed: int | None = None, **kwargs):
+        """Canonical synthetic problem; legacy generate() still returns DeliveryInstance."""
+        from engine.routing.adapters import problem_from_instance
+        return problem_from_instance(self.generate(n_stops, **kwargs), num_drivers,
+                                     search_seed=search_seed)
+
     def _generate_point(self) -> Point:
         """Generate a random point within the configured bounds."""
         x = self._rng.uniform(self.x_range[0], self.x_range[1])

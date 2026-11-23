@@ -4,10 +4,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "test": "node --test tests/workflow.cjs",
+    "test:browser": "node tests/workflow-browser.mjs",
+    "dev": "node scripts/vite-safe.mjs dev",
+    "build": "tsc && node scripts/vite-safe.mjs build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "node scripts/vite-safe.mjs preview"
   },
   "dependencies": {
     "react": "^18.2.0",

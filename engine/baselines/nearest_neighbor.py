@@ -30,7 +30,7 @@ class RouteResult(BaseModel):
         )
 
 
-def nearest_neighbor(distance_matrix: np.ndarray) -> RouteResult:
+def nearest_neighbor(distance_matrix: np.ndarray, *, checkpoint=None) -> RouteResult:
     """
     Construct a route using the Nearest Neighbor heuristic.
     
@@ -46,6 +46,8 @@ def nearest_neighbor(distance_matrix: np.ndarray) -> RouteResult:
     Args:
         distance_matrix: NxN symmetric distance matrix
                         Index 0 = depot, 1..N-1 = stops
+        checkpoint: Optional host callback before each distance comparison.
+                    It may raise to abandon an incomplete construction.
         
     Returns:
         RouteResult containing route and total distance
@@ -99,6 +101,8 @@ def nearest_neighbor(distance_matrix: np.ndarray) -> RouteResult:
         nearest_distance = float('inf')
         
         for stop in unvisited:
+            if checkpoint is not None:
+                checkpoint()
             dist = distance_matrix[current, stop]
             # Deterministic tie-breaking: prefer lower index
             if dist < nearest_distance or (dist == nearest_distance and stop < nearest_stop):

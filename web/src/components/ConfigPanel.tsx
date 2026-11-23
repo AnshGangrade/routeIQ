@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { LocationPicker } from './LocationPicker';
+import { parseCoordinatePair, parseSeed } from '../services/inputs';
 
 interface ConfigPanelProps {
   onGenerateInstance: (
@@ -22,6 +24,37 @@ interface ConfigPanelProps {
   ) => void;
   hasInstance: boolean;
   loading: boolean;
+  // State from parent
+  numStops: number;
+  setNumStops: (value: number) => void;
+  numDrivers: number;
+  setNumDrivers: (value: number) => void;
+  layout: 'uniform' | 'clustered';
+  setLayout: (value: 'uniform' | 'clustered') => void;
+  instanceMode: 'synthetic' | 'road';
+  setInstanceMode: (value: 'synthetic' | 'road') => void;
+  depotLon: string;
+  setDepotLon: (value: string) => void;
+  depotLat: string;
+  setDepotLat: (value: string) => void;
+  roadStops: Array<{ lon: string; lat: string }>;
+  setRoadStops: (value: Array<{ lon: string; lat: string }>) => void;
+  stopGenerationMode: 'nearby' | 'manual' | 'map';
+  setStopGenerationMode: (value: 'nearby' | 'manual' | 'map') => void;
+  nearbyRadius: number;
+  setNearbyRadius: (value: number) => void;
+  evoNumStops: number;
+  setEvoNumStops: (value: number) => void;
+  evoNumInstances: number;
+  setEvoNumInstances: (value: number) => void;
+  evoGenerations: number;
+  setEvoGenerations: (value: number) => void;
+  evoCandidates: number;
+  setEvoCandidates: (value: number) => void;
+  evoElites: number;
+  setEvoElites: (value: number) => void;
+  evoMode: 'mock' | 'live';
+  setEvoMode: (value: 'mock' | 'live') => void;
 }
 
 export function ConfigPanel({
@@ -30,32 +63,45 @@ export function ConfigPanel({
   onStartEvolution,
   hasInstance,
   loading,
+  numStops,
+  setNumStops,
+  numDrivers,
+  setNumDrivers,
+  layout,
+  setLayout,
+  instanceMode,
+  setInstanceMode,
+  depotLon,
+  setDepotLon,
+  depotLat,
+  setDepotLat,
+  roadStops,
+  setRoadStops,
+  stopGenerationMode,
+  setStopGenerationMode,
+  nearbyRadius,
+  setNearbyRadius,
+  evoNumStops,
+  setEvoNumStops,
+  evoNumInstances,
+  setEvoNumInstances,
+  evoGenerations,
+  setEvoGenerations,
+  evoCandidates,
+  setEvoCandidates,
+  evoElites,
+  setEvoElites,
+  evoMode,
+  setEvoMode,
 }: ConfigPanelProps) {
-  const [numStops, setNumStops] = useState(5);
-  const [numDrivers, setNumDrivers] = useState(2);
-  const [layout, setLayout] = useState<'uniform' | 'clustered'>('uniform');
-  const [instanceMode, setInstanceMode] = useState<'synthetic' | 'road'>('synthetic');
-  const [seed, setSeed] = useState('42');
-  const [useRandomSeed, setUseRandomSeed] = useState(false);
-
-  // Road mode depot configuration
-  const [depotLon, setDepotLon] = useState('');
-  const [depotLat, setDepotLat] = useState('');
+  // Local UI state only (not persisted)
   const [geolocating, setGeolocating] = useState(false);
   const [geolocationError, setGeolocationError] = useState<string>('');
+  const [showMapPicker, setShowMapPicker] = useState(false);
 
-  // Road mode stops configuration
-  const [stopGenerationMode, setStopGenerationMode] = useState<'nearby' | 'manual'>('nearby');
-  const [nearbyRadius, setNearbyRadius] = useState(5); // km
-  const [roadStops, setRoadStops] = useState<Array<{ lon: string; lat: string }>>([]);
-
-  // Evolution params
-  const [evoNumStops, setEvoNumStops] = useState(20);
-  const [evoNumInstances, setEvoNumInstances] = useState(5);
-  const [evoGenerations, setEvoGenerations] = useState(3);
-  const [evoCandidates, setEvoCandidates] = useState(4);
-  const [evoElites, setEvoElites] = useState(2);
-  const [evoMode, setEvoMode] = useState<'mock' | 'live'>('mock');
+  // Seed is hardcoded
+  const seed = '42';
+  const useRandomSeed = false;
 
   // Geolocation handler
   const handleUseCurrentLocation = () => {
@@ -100,8 +146,8 @@ export function ConfigPanel({
 
   // Generate nearby stops (simulated locations for demo)
   const generateNearbyStops = () => {
-    const depot = [parseFloat(depotLon), parseFloat(depotLat)];
-    if (isNaN(depot[0]) || isNaN(depot[1])) {
+    const depot = parseCoordinatePair(depotLon, depotLat);
+    if (!depot) {
       alert('Please set depot location first');
       return;
     }
@@ -129,13 +175,21 @@ export function ConfigPanel({
   };
 
   const handleGenerate = () => {
-    const parsedSeed = useRandomSeed ? undefined : parseInt(seed) || 42;
-    
+    const parsedSeed = useRandomSeed ? undefined : parseSeed(seed);
+    if (!Number.isInteger(numStops) || numStops < 5 || numStops > (instanceMode === 'road' ? 99 : 200)) {
+      alert(instanceMode === 'road' ? 'Road mode requires 5?99 stops.' : 'Synthetic mode requires 5?200 stops.');
+      return;
+    }
+    if (!Number.isInteger(numDrivers) || numDrivers < 1 || numDrivers > 20 ||
+        parsedSeed === null) {
+      alert('Use 1-20 drivers and a seed between 0 and 4294960000.');
+      return;
+    }
     if (instanceMode === 'road') {
       // Validate depot coordinates
-      const depot = [parseFloat(depotLon), parseFloat(depotLat)];
+      const depot = parseCoordinatePair(depotLon, depotLat);
       
-      if (!depotLon || !depotLat || isNaN(depot[0]) || isNaN(depot[1])) {
+      if (!depot) {
         alert('Please enter valid depot coordinates');
         return;
       }
@@ -156,6 +210,11 @@ export function ConfigPanel({
         return;
       }
 
+      const selectedStops = roadStops.slice(0, numStops);
+      if (selectedStops.some(s => !s.lon.trim() || !s.lat.trim() || !Number.isFinite(Number(s.lon)) || !Number.isFinite(Number(s.lat)) || Math.abs(Number(s.lon)) > 180 || Math.abs(Number(s.lat)) > 90)) {
+        alert('Each stop needs a valid longitude (-180 to 180) and latitude (-90 to 90).');
+        return;
+      }
       const stops = roadStops.slice(0, numStops).map(s => {
         const lon = parseFloat(s.lon);
         const lat = parseFloat(s.lat);
@@ -191,7 +250,11 @@ export function ConfigPanel({
   };
 
   const handleStartEvolution = () => {
-    const parsedSeed = useRandomSeed ? undefined : parseInt(seed) || 42;
+    const parsedSeed = useRandomSeed ? undefined : parseSeed(seed);
+    if (parsedSeed === null) {
+      alert('Use a seed between 0 and 4294960000.');
+      return;
+    }
     onStartEvolution(
       evoNumStops,
       evoNumInstances,
@@ -204,12 +267,15 @@ export function ConfigPanel({
   };
 
   return (
-    <div className="bg-white rounded-lg border border-warm-border shadow-sm p-6">
-      <h2 className="text-2xl font-bold text-navy mb-4">Configuration</h2>
+    <div className="card-flat p-6 space-y-6">
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="editorial-heading">Configure</h2>
+        <div className="pixel-marker" style={{ width: '10px', height: '10px' }} />
+      </div>
 
       {/* Instance Configuration */}
-      <div className="space-y-4 mb-6">
-        <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+      <div className="space-y-4">
+        <h3 className="mono-label text-[#5f5f5d]">
           Instance Setup
         </h3>
 
@@ -297,8 +363,8 @@ export function ConfigPanel({
                     </label>
                     <input
                       type="number"
-                      min="3"
-                      max="50"
+                      min="5"
+                      max="99"
                       value={numStops}
                       onChange={(e) => setNumStops(parseInt(e.target.value) || 5)}
                       className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
@@ -311,7 +377,7 @@ export function ConfigPanel({
                     <input
                       type="number"
                       min="1"
-                      max="10"
+                      max="20"
                       value={numDrivers}
                       onChange={(e) => setNumDrivers(parseInt(e.target.value) || 2)}
                       className="w-full px-2 py-1 text-sm border border-slate-300 rounded focus:ring-1 focus:ring-blue-500"
@@ -327,6 +393,18 @@ export function ConfigPanel({
                 </label>
                 
                 <div className="space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={stopGenerationMode === 'map'}
+                      onChange={() => setStopGenerationMode('map')}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-slate-700">
+                      Click on map to place stops
+                    </span>
+                  </label>
+                  
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
@@ -347,10 +425,51 @@ export function ConfigPanel({
                       className="text-blue-600 focus:ring-blue-500"
                     />
                     <span className="text-sm text-slate-700">
-                      Enter specific addresses/coordinates
+                      Enter coordinates manually
                     </span>
                   </label>
                 </div>
+
+                {stopGenerationMode === 'map' && (
+                  <div className="space-y-2 mt-2 p-2 bg-white rounded border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowMapPicker(!showMapPicker)}
+                      className="w-full px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                    >
+                      {showMapPicker ? '✓ Close Map' : '🗺️ Open Interactive Map'}
+                    </button>
+                    
+                    {showMapPicker && (
+                      <LocationPicker
+                        depotLat={depotLat}
+                        depotLon={depotLon}
+                        stops={roadStops}
+                        onDepotChange={(lat, lon) => {
+                          setDepotLat(lat.toFixed(6));
+                          setDepotLon(lon.toFixed(6));
+                        }}
+                        onStopAdd={(lat, lon) => {
+                          setRoadStops([...roadStops, {
+                            lat: lat.toFixed(6),
+                            lon: lon.toFixed(6)
+                          }]);
+                        }}
+                        onStopRemove={(index) => {
+                          setRoadStops(roadStops.filter((_, i) => i !== index));
+                        }}
+                        onStopMove={(index, lat, lon) => {
+                          const updated = [...roadStops];
+                          updated[index] = {
+                            lat: lat.toFixed(6),
+                            lon: lon.toFixed(6)
+                          };
+                          setRoadStops(updated);
+                        }}
+                      />
+                    )}
+                  </div>
+                )}
 
                 {stopGenerationMode === 'nearby' && (
                   <div className="space-y-2 mt-2 p-2 bg-white rounded border border-slate-200">
@@ -493,50 +612,28 @@ export function ConfigPanel({
           </>
         )}
 
-        {/* Common fields */}
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">
-            Random Seed
-          </label>
-          <div className="flex items-center gap-2 mb-2">
-            <input
-              type="checkbox"
-              checked={useRandomSeed}
-              onChange={(e) => setUseRandomSeed(e.target.checked)}
-              className="rounded"
-            />
-            <span className="text-sm text-slate-600">Use random seed</span>
-          </div>
-          {!useRandomSeed && (
-            <input
-              type="number"
-              value={seed}
-              onChange={(e) => setSeed(e.target.value)}
-              className="w-full px-3 py-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          )}
-        </div>
+        {/* Common fields - removed seed UI */}
 
         <button
           onClick={handleGenerate}
           disabled={loading}
-          className="w-full bg-navy text-white py-2 px-4 rounded-md hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          className="w-full bg-[#1c1c1c] text-[#F7F4ED] py-3 px-4 rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-bold transition-all shadow-md"
         >
-          {loading ? 'Generating...' : instanceMode === 'road' ? 'Generate Instance (Road)' : 'Generate Instance'}
+          {loading ? 'Generating...' : instanceMode === 'road' ? 'Generate Road Instance' : 'Generate Instance'}
         </button>
       </div>
 
       {/* Routing Controls */}
       {hasInstance && (
-        <div className="space-y-4 mb-6 pt-6 border-t border-warm-border">
-          <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+        <div className="space-y-4 pt-6 border-t-2 border-[#eceae4]">
+          <h3 className="mono-label text-[#5f5f5d]">
             Solve Routing
           </h3>
 
           <button
             onClick={() => onSolveRouting('nearest_neighbor')}
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-[#2563eb] text-white py-3 px-4 rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-opacity"
           >
             Nearest Neighbor
           </button>
@@ -544,16 +641,16 @@ export function ConfigPanel({
           <button
             onClick={() => onSolveRouting('2opt')}
             disabled={loading}
-            className="w-full bg-teal-600 text-white py-2 px-4 rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-[#0d9488] text-white py-3 px-4 rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-opacity"
           >
-            2-Opt
+            2-Opt Refinement
           </button>
         </div>
       )}
 
       {/* Evolution Controls */}
-      <div className="space-y-4 pt-6 border-t border-warm-border">
-        <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+      <div className="space-y-4 pt-6 border-t-2 border-[#eceae4]">
+        <h3 className="mono-label text-[#5f5f5d]">
           Evolution
         </h3>
 
@@ -669,12 +766,12 @@ export function ConfigPanel({
         <button
           onClick={handleStartEvolution}
           disabled={loading}
-          className="w-full bg-purple-600 text-white py-2 px-4 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          className="w-full bg-[#7c3aed] text-white py-3 px-4 rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed font-semibold transition-opacity shadow-md"
         >
           {loading ? 'Starting...' : `Run Evolution (${evoMode === 'mock' ? 'Mock' : 'Live'})`}
         </button>
 
-        <p className="text-xs text-slate-500 leading-relaxed">
+        <p className="text-xs text-[#5f5f5d] leading-relaxed">
           {evoMode === 'mock' 
             ? 'Mock mode uses predefined candidates for testing without API calls.'
             : 'Live mode generates real heuristics using the configured LLM. API calls will be made.'

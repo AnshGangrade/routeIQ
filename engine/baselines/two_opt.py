@@ -12,7 +12,8 @@ from .nearest_neighbor import RouteResult
 def two_opt(
     initial_route: List[int],
     distance_matrix: np.ndarray,
-    max_iterations: int = 1000
+    max_iterations: int = 1000,
+    *, should_continue=None
 ) -> RouteResult:
     """
     Improve a route using 2-Opt local search.
@@ -35,8 +36,10 @@ def two_opt(
     
     Args:
         initial_route: Valid route [0, ..., 0] (depot start/end)
-        distance_matrix: NxN symmetric distance matrix
+        distance_matrix: NxN distance matrix (symmetric or directed)
         max_iterations: Maximum improvement iterations (default 1000)
+        should_continue: Optional host callback before each reversal evaluation.
+                         False returns the best route already found.
         
     Returns:
         RouteResult with improved route and distance
@@ -108,24 +111,24 @@ def two_opt(
                 if j == n - 1:
                     # Can't reverse past the end depot
                     continue
+
+                # Optional cooperative hook; default historical behavior is unchanged.
+                if should_continue is not None and not should_continue():
+                    return RouteResult(route=route.copy(), total_distance=best_distance,
+                                       algorithm="2-Opt")
                 
-                # Current distance of affected edges
-                current_dist = (
-                    distance_matrix[route[i], route[i + 1]] +
-                    distance_matrix[route[j], route[j + 1]]
+                # Reversal changes internal edge directions as well as the
+                # boundary edges. Measure the complete proposed route so a
+                # symmetric-only delta cannot accept a worse road route.
+                proposed_route = route.copy()
+                proposed_route[i + 1:j + 1] = reversed(route[i + 1:j + 1])
+                proposed_distance = calculate_route_cost(
+                    proposed_route, distance_matrix, return_to_depot=False
                 )
-                
-                # New distance after reversing segment [i+1...j]
-                new_dist = (
-                    distance_matrix[route[i], route[j]] +
-                    distance_matrix[route[i + 1], route[j + 1]]
-                )
-                
-                # If improvement found, apply it
-                if new_dist < current_dist:
-                    # Reverse the segment from i+1 to j (inclusive)
-                    route[i + 1:j + 1] = reversed(route[i + 1:j + 1])
-                    best_distance += (new_dist - current_dist)
+
+                if proposed_distance < best_distance:
+                    route = proposed_route
+                    best_distance = proposed_distance
                     improved = True
                     break  # Restart from beginning after improvement
             
@@ -156,7 +159,7 @@ def nearest_neighbor_with_2opt(
     This is a complete baseline: construction + local search.
     
     Args:
-        distance_matrix: NxN symmetric distance matrix
+        distance_matrix: NxN distance matrix (symmetric or directed)
         max_2opt_iterations: Maximum 2-Opt improvement iterations
         
     Returns:

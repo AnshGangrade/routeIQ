@@ -1,0 +1,201 @@
+[
+  {
+    "strategy_id": "example-seed-0",
+    "parents": [],
+    "generation": 0,
+    "config": {
+      "schema_version": "fleet-strategy/v1",
+      "construction": "portfolio",
+      "operators": [
+        "relocate",
+        "swap",
+        "or_opt_2",
+        "two_opt",
+        "cross_relocate",
+        "cross_exchange"
+      ],
+      "scheduling": "restart_on_improvement",
+      "improvement": "best_scanned_strict",
+      "perturbation": "seeded_stop_swap",
+      "acceptance": "improve_or_bounded_diversify",
+      "nn_attempts": 4,
+      "max_operator_calls": 500,
+      "max_moves_per_operator": 10000,
+      "two_opt_iterations": 1,
+      "ils_iterations": 0,
+      "perturbation_moves": 1,
+      "max_diversifications": 0
+    },
+    "rationale": "Unevaluated host-authored example",
+    "creation_method": "seed",
+    "protected": true,
+    "evaluation_history": [],
+    "fitness": {},
+    "configuration_fingerprint": "c4f9e5c15fe5f7ef3bd1e1dc4945e31c29bbb52515b3f63d625674b7b7fb51ef"
+  },
+  {
+    "strategy_id": "example-seed-1",
+    "parents": [],
+    "generation": 0,
+    "config": {
+      "schema_version": "fleet-strategy/v1",
+      "construction": "portfolio",
+      "operators": [
+        "relocate",
+        "swap",
+        "or_opt_2",
+        "two_opt",
+        "cross_relocate",
+        "cross_exchange"
+      ],
+      "scheduling": "restart_on_improvement",
+      "improvement": "best_scanned_strict",
+      "perturbation": "seeded_stop_swap",
+      "acceptance": "improve_or_bounded_diversify",
+      "nn_attempts": 4,
+      "max_operator_calls": 500,
+      "max_moves_per_operator": 10000,
+      "two_opt_iterations": 1,
+      "ils_iterations": 5,
+      "perturbation_moves": 2,
+      "max_diversifications": 3
+    },
+    "rationale": "Unevaluated host-authored example",
+    "creation_method": "seed",
+    "protected": true,
+    "evaluation_history": [],
+    "fitness": {},
+    "configuration_fingerprint": "9c6aa2094fdf7378eea3fa094352957154d85275fe6ba02344bcf5d6a25d4a73"
+  },
+  {
+    "strategy_id": "example-seed-2",
+    "parents": [],
+    "generation": 0,
+    "config": {
+      "schema_version": "fleet-strategy/v1",
+      "construction": "portfolio",
+      "operators": [
+        "two_opt"
+      ],
+      "scheduling": "restart_on_improvement",
+      "improvement": "best_scanned_strict",
+      "perturbation": "seeded_stop_swap",
+      "acceptance": "improve_or_bounded_diversify",
+      "nn_attempts": 4,
+      "max_operator_calls": 500,
+      "max_moves_per_operator": 10000,
+      "two_opt_iterations": 1,
+      "ils_iterations": 0,
+      "perturbation_moves": 1,
+      "max_diversifications": 0
+    },
+    "rationale": "Unevaluated host-authored example",
+    "creation_method": "seed",
+    "protected": false,
+    "evaluation_history": [],
+    "fitness": {},
+    "configuration_fingerprint": "b8c8aa7795730d4fbed428a01915968a790e6b6ba8ee0dcb987af8a82b18aedf"
+  },
+  {
+    "strategy_id": "example-seed-3",
+    "parents": [],
+    "generation": 0,
+    "config": {
+      "schema_version": "fleet-strategy/v1",
+      "construction": "cheapest_insertion",
+      "operators": [
+        "relocate",
+        "swap",
+        "or_opt_2",
+        "two_opt",
+        "cross_relocate",
+        "cross_exchange"
+      ],
+      "scheduling": "restart_on_improvement",
+      "improvement": "best_scanned_strict",
+      "perturbation": "seeded_stop_swap",
+      "acceptance": "improve_or_bounded_diversify",
+      "nn_attempts": 1,
+      "max_operator_calls": 500,
+      "max_moves_per_operator": 10000,
+      "two_opt_iterations": 1,
+      "ils_iterations": 0,
+      "perturbation_moves": 1,
+      "max_diversifications": 0
+    },
+    "rationale": "Unevaluated host-authored example",
+    "creation_method": "seed",
+    "protected": false,
+    "evaluation_history": [],
+    "fitness": {},
+    "configuration_fingerprint": "bceedd78f102d12ca0dc1605d1e43e91561fd53772aa6c4c4dfa4b9ee3c990b8"
+  },
+  {
+    "strategy_id": "example-seed-4",
+    "parents": [],
+    "generation": 0,
+    "config": {
+      "schema_version": "fleet-strategy/v1",
+      "construction": "portfolio",
+      "operators": [
+        "cross_exchange",
+        "cross_relocate",
+        "two_opt",
+        "or_opt_2",
+        "swap",
+        "relocate"
+      ],
+      "scheduling": "restart_on_improvement",
+      "improvement": "best_scanned_strict",
+      "perturbation": "seeded_stop_swap",
+      "acceptance": "improve_or_bounded_diversify",
+      "nn_attempts": 4,
+      "max_operator_calls": 500,
+      "max_moves_per_operator": 10000,
+      "two_opt_iterations": 1,
+      "ils_iterations": 0,
+      "perturbation_moves": 1,
+      "max_diversifications": 0
+    },
+    "rationale": "Unevaluated host-authored example",
+    "creation_method": "seed",
+    "protected": false,
+    "evaluation_history": [],
+    "fitness": {},
+    "configuration_fingerprint": "c227d4e10352e8dd178a7c4ae2a218dbc3e9909c1455aeda00afe0262a8dcdfa"
+  },
+  {
+    "strategy_id": "example-seed-5",
+    "parents": [],
+    "generation": 0,
+    "config": {
+      "schema_version": "fleet-strategy/v1",
+      "construction": "nearest_neighbor_starts",
+      "operators": [
+        "relocate",
+        "swap",
+        "or_opt_2",
+        "two_opt",
+        "cross_relocate",
+        "cross_exchange"
+      ],
+      "scheduling": "restart_on_improvement",
+      "improvement": "best_scanned_strict",
+      "perturbation": "seeded_stop_swap",
+      "acceptance": "improve_or_bounded_diversify",
+      "nn_attempts": 8,
+      "max_operator_calls": 500,
+      "max_moves_per_operator": 10000,
+      "two_opt_iterations": 1,
+      "ils_iterations": 0,
+      "perturbation_moves": 1,
+      "max_diversifications": 0
+    },
+    "rationale": "Unevaluated host-authored example",
+    "creation_method": "seed",
+    "protected": false,
+    "evaluation_history": [],
+    "fitness": {},
+    "configuration_fingerprint": "7a00d2fd04b5fcd1cc551d924815c3708a093eb4efd927356ca568566bb4b011"
+  }
+]

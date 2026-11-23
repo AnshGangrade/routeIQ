@@ -29,13 +29,12 @@ def create_road_distance_matrix(
         
     Returns:
         Tuple of (distance_matrix, result)
-        - distance_matrix: NxN numpy array of distances in map units
+        - distance_matrix: NxN numpy array of distances in meters
         - result: RoadDistanceResult with metadata and errors
         
     Note:
-        - Returns Euclidean fallback if road routing fails
-        - Distances are returned in the same units as Euclidean (map units)
-        - This allows fair comparison between synthetic and road modes
+        - Failure returns an unsuccessful result; callers must not use its placeholder matrix.
+        - Road distances are meters; synthetic distances remain map units.
         
     Example:
         >>> # Berlin coordinates (lon, lat)
@@ -57,7 +56,15 @@ def create_road_distance_matrix(
         return np.zeros((n, n)), result
     
     # Convert OSRM distances (list of lists) to numpy array
-    matrix = np.array(result.distances, dtype=float)
+    try:
+        matrix = np.array(result.distances, dtype=float)
+        if (matrix.shape != (len(coordinates), len(coordinates))
+                or not np.isfinite(matrix).all() or (matrix < 0).any()):
+            raise ValueError("Road distance matrix must be square, finite and non-negative")
+    except (ValueError, TypeError) as exc:
+        return np.zeros((len(coordinates), len(coordinates))), RoadDistanceResult(
+            provider=result.provider, error=f"Invalid road distance matrix: {exc}"
+        )
     
     # OSRM returns distances in meters
     # Keep them in meters for consistency with coordinates
@@ -86,7 +93,10 @@ def validate_geographic_coordinates(
     if not coordinates:
         return False, "Empty coordinates list"
     
-    for i, (lon, lat) in enumerate(coordinates):
+    for i, coord in enumerate(coordinates):
+        if len(coord) != 2:
+            return False, f"Coordinate at index {i} must contain exactly longitude and latitude"
+        lon, lat = coord
         if not (-180 <= lon <= 180):
             return False, f"Invalid longitude at index {i}: {lon}"
         
@@ -96,15 +106,5 @@ def validate_geographic_coordinates(
     # Check if all coordinates are zeros (common mistake)
     if all(lon == 0 and lat == 0 for lon, lat in coordinates):
         return False, "All coordinates are (0, 0) - likely not real locations"
-    
-    # Check if coordinates look synthetic (e.g., all in 0-100 range)
-    if all(-100 <= lon <= 100 and -100 <= lat <= 100 for lon, lat in coordinates):
-        # Could be real (e.g., Europe), but warn if they look grid-like
-        lons = [lon for lon, _ in coordinates]
-        lats = [lat for _, lat in coordinates]
-        
-        # If all coordinates are integers, likely synthetic
-        if all(lon == int(lon) and lat == int(lat) for lon, lat in coordinates):
-            return False, "Coordinates appear to be synthetic (all integers in small range)"
     
     return True, None
