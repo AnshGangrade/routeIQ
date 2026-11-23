@@ -72,7 +72,7 @@ function quietComparison(rows) {
 }
 const quietRow=(method,distance,status='completed')=>({method,total_distance:distance,longest_route_distance:distance,computation_time:.01,feasible:true,matrix_fingerprint:'m',problem_fingerprint:'p',execution:{status,termination:'budget_exhausted',operations:100}});
 test('Quiet Atlas highlights the shortest valid incomplete incumbent with honest status',()=>{
- const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('vnd',80,'incomplete')]);
+ const html=quietComparison([quietRow('nearest_neighbor',100,'incomplete'),quietRow('portfolio',80,'incomplete')]);
  const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
  assert.match(hero,/80.00 map units/);assert.match(hero,/incomplete/);assert.match(hero,/20.0% shorter/);assert.match(hero,/stopped before completion/);
  assert.match(html,/<details class="comparison-diagnostics">/);
@@ -82,4 +82,61 @@ test('Quiet Atlas excludes failed and mismatched results from best measured sele
  const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('vnd',2,'failed'),bad]);
  const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
  assert.match(hero,/100.00 map units/);assert.doesNotMatch(hero,/2.00 map units|1.00 map units/);assert.match(html,/Failed evaluation/);assert.match(html,/Unverified result/);
+});
+
+test('completed comparison result takes recommendation priority over a shorter incomplete incumbent',()=>{
+ const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('portfolio',80,'incomplete')]);
+ const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
+ assert.match(hero,/100.00 map units/);assert.match(html,/80.00 map units/);assert.match(html,/incomplete/);
+});
+test('no valid comparison result is actionable and never creates a recommendation',()=>{
+ const html=quietComparison([quietRow('portfolio',1,'failed')]);
+ assert.doesNotMatch(html,/aria-label="Best valid measured result"/);assert.match(html,/No validated comparison result/);assert.match(html,/Run route comparison/);
+});
+
+const {ComparisonRun}=require('../src/services/comparison.ts');
+const presetInstance={instance_id:'a',num_stops:1,num_drivers:1,stops:[{stop_id:1}],matrix_fingerprint:'m',problem_fingerprint:'p'};
+const presetResult=method=>({instance_id:'a',method,feasible:true,total_distance:2,matrix_fingerprint:'m',problem_fingerprint:'p',drivers:[{driver_id:0,route:[0,1,0],distance:2}],execution:{status:'completed'}});
+test('one comparison invocation uses one identity, fixed budgets and rejects repeated starts',async()=>{
+ const calls=[],received=[],progress=[];
+ const client={solveRouting:async body=>{calls.push(body);return presetResult(body.method);},startOptimization:async body=>{calls.push(body);return {job_id:'j',instance_id:'a',method:'portfolio'};},optimizationStatus:async()=>({job_id:'j',instance_id:'a',method:'portfolio',matrix_fingerprint:'m',problem_fingerprint:'p',status:'completed',result:presetResult('portfolio')})};
+ const run=new ComparisonRun(presetInstance,p=>progress.push(p),r=>received.push(r),client);
+ await Promise.all([run.run(),run.run()]);
+ assert.equal(calls.length,3);assert.equal(received.length,3);assert.ok(calls.every(c=>c.instance_id==='a'));
+ assert.equal(calls[2].operations,100000);assert.equal(calls[2].search_seed,0);assert.equal(progress.at(-1).status,'completed');
+});
+test('comparison cancellation during a baseline prevents later jobs and publishing late results',async()=>{
+ let release;const received=[],progress=[],calls=[];
+ const client={solveRouting:body=>{calls.push(body);return new Promise(r=>{release=r});}};
+ const run=new ComparisonRun(presetInstance,p=>progress.push(p),r=>received.push(r),client);
+ const pending=run.run();await run.cancel();release(presetResult('nearest_neighbor'));await pending;
+ assert.equal(calls.length,1);assert.equal(received.length,0);assert.equal(progress.at(-1).status,'cancelled');
+});
+test('comparison retains errors instead of inventing success when no method can run',async()=>{
+ const progress=[],received=[];
+ const client={solveRouting:async()=>{throw Error('offline');},startOptimization:async()=>{throw Error('offline');}};
+ await new ComparisonRun(presetInstance,p=>progress.push(p),r=>received.push(r),client).run();
+ assert.equal(received.length,0);assert.equal(progress.at(-1).errors.length,3);assert.equal(progress.at(-1).status,'failed');
+});
+
+test('comparison cancels only its active optimizer identity and reaches terminal cancelled',async()=>{
+ let release;let calls=[];let progress=[];
+ const client={solveRouting:async body=>presetResult(body.method),startOptimization:async()=>({job_id:'mine',instance_id:'a',method:'portfolio'}),optimizationStatus:()=>new Promise(r=>release=r),cancelOptimization:async id=>{calls.push(id);return {job_id:id,instance_id:'a',status:'cancelling'};}};
+ const run=new ComparisonRun(presetInstance,p=>progress.push(p),()=>{},client);const pending=run.run();
+ while(!release) await new Promise(r=>setImmediate(r));
+ await run.cancel();release({job_id:'mine',instance_id:'a',method:'portfolio',matrix_fingerprint:'m',problem_fingerprint:'p',status:'cancelled'});await pending;
+ assert.deepEqual(calls,['mine']);assert.equal(progress.at(-1).status,'cancelled');
+});
+test('comparison rejects wrong matrix even for an otherwise feasible route',async()=>{
+ const received=[],progress=[];
+ const client={solveRouting:async body=>({...presetResult(body.method),matrix_fingerprint:'wrong'}),startOptimization:async()=>{throw Error('offline');}};
+ await new ComparisonRun(presetInstance,p=>progress.push(p),r=>received.push(r),client).run();
+ assert.equal(received.length,0);assert.equal(progress.at(-1).status,'failed');assert.equal(progress.at(-1).errors.length,3);
+});
+
+test('completed experiment loop never hides incomplete or failed evaluations in the result headline',()=>{
+ const {experimentStatus}=require('../src/services/presentation.ts');
+ assert.equal(experimentStatus({status:'completed',records:{a:{fitness:{incomplete:2,failed:0}}}}),'Finished with incomplete evaluations');
+ assert.equal(experimentStatus({status:'completed',records:{a:{fitness:{incomplete:0,failed:1}}}}),'Finished with evaluation failures');
+ assert.equal(experimentStatus({status:'cancelled',records:{}}),'cancelled');
 });

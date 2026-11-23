@@ -1,7 +1,7 @@
 import type { StrategyExperiment, StrategyRecord, MethodComparison } from '../types/api';
 import { finiteSeries, sourceLabel } from '../services/presentation';
 import { formatDistance } from '../services/distance';
-import { methodNames, type Method } from '../services/workflow';
+import { differenceText, methodNames, type Method } from '../services/workflow';
 import { Icon, Tip } from './Design';
 
 export function ComparisonBars({ rows, mode, onView, busy }: { rows: MethodComparison[]; mode: string; onView: (method: Method)=>void; busy: boolean }) {
@@ -50,6 +50,7 @@ export function CandidateComparison({ records, offline }: { records: StrategyRec
 export function ResearchVisuals({ state }: { state: StrategyExperiment | null }) {
   const records=Object.values(state?.records || {}), history=state?.history || [];
   return <section className="research-observatory" aria-label="Experiment visual evidence"><div className="section-heading"><div><p className="eyebrow">The research notebook</p><h2>Follow the search.</h2></div><span className="badge">Development data</span></div>
+    {history.length>1 && <p className="notice">Development change since the first evaluated generation: {history[history.length-1].best_so_far==null?'Unavailable':differenceText(history[history.length-1].best_so_far!,history[0].best_so_far ?? undefined)}. This is training evidence, not improvement on your selected plan.</p>}
     <div className="research-grid"><div className="fitness-card"><div className="section-heading"><h3>Fitness progression</h3><Tip text="Fitness is mean fleet distance across the configured development cases. It is not the distance of your delivery plan."/></div><FitnessPlot history={history}/></div><div className="generation-card"><h3>Generation timeline</h3>{history.length ? <ol className="generation-timeline">{history.map(h=><li key={h.generation}><span>G{h.generation+1}</span><div><strong>{h.unique_configurations} configurations</strong><small>{h.behavioral_diversity} distinct route behaviors</small><small>{h.best_so_far==null?'No eligible fitness':`${h.best_so_far.toFixed(2)} map units`}</small></div></li>)}</ol>:<p className="muted small">No evaluated generations. Start an experiment to see how configurations and routing behavior change.</p>}</div></div>
     <CandidateComparison records={records} offline={state?.manifest?.provider_mode==='offline'}/>
     <details className="lineage-panel"><summary>Strategy lineage <span className="badge">{records.length} candidates</span></summary><p className="small muted">Links show recorded parents. Independent proposals have no parent link; source labels identify how each configuration was created.</p><Lineage records={records} bestId={state?.best_id} offline={state?.manifest?.provider_mode==='offline'}/></details>

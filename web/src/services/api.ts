@@ -59,6 +59,9 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async checkStrategyProvider(provider: StartStrategyRequest['provider'], signal?:AbortSignal):Promise<{configured:boolean;reachable:boolean;available:boolean;model:string;message:string}> {
+    return fetchJSON(`${API_BASE}/strategy-experiments/provider/check`,{method:'POST',body:JSON.stringify(provider),signal});
+  },
   async startOptimization(request: OptimizeRequest): Promise<OptimizationJob> {
     return fetchJSON(`${API_BASE}/optimization/jobs`, { method: 'POST', body: JSON.stringify(request) });
   },

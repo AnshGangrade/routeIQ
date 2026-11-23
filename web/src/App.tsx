@@ -1,3 +1,4 @@
+import { ComparisonRun, type ComparisonProgress } from './services/comparison';
 import { Home } from './components/Home';
 import { BrandMark, Icon, ConfirmationProvider } from './components/Design';
 import { useEffect, useRef, useState } from 'react';
@@ -17,6 +18,8 @@ import type { Method, View } from './services/workflow';
 import type { ComparisonResponse, EvolutionProgressResponse, InstanceResponse, RoutingResultResponse, HybridMethod, OptimizationJob } from './types/api';
 
 function App() {
+  const [comparisonProgress,setComparisonProgress]=useState<ComparisonProgress|null>(null);
+  const comparisonTask=useRef<ComparisonRun|null>(null);
   const [view, setView] = useState<View>(() => viewFromHash(window.location.hash));
   const [legacyLab, setLegacyLab] = useState(false);
   const [labVisited, setLabVisited] = useState(() => viewFromHash(window.location.hash) === 'lab');
@@ -55,7 +58,8 @@ function App() {
   const currentResult = results.get(method) || null;
   const running = !!evolution && ['pending', 'running', 'cancelling'].includes(evolution.status);
   const optimizing = activeStatus(optimization?.status);
-  const busyNow = !!busy || optimizing;
+  const comparing=!!comparisonProgress && ['running','cancelling'].includes(comparisonProgress.status);
+  const busyNow = !!busy || optimizing || comparing;
   const draftSignature = JSON.stringify([draft.mode, draft.numStops, draft.numDrivers, draft.seed, draft.layout,
     draft.mode === 'road' ? [draft.depotLon, draft.depotLat, draft.stops] : null, draft.workloadMode || 'balanced']);
   const draftChanged = !!instance && submittedDraft !== draftSignature;
@@ -119,12 +123,23 @@ function App() {
     try { await action(); } catch (reason) { setError(reason instanceof Error ? reason.message : 'This action could not be completed. Please retry.'); }
     finally { busyRef.current = false; setBusy(null); }
   };
+  const runComparison = async () => {
+    if (!instance || busyNow || comparisonTask.current) return;
+    const selected=instance.instance_id;
+    const task=new ComparisonRun(instance,p=>{if(instanceRef.current===selected)setComparisonProgress(p);},row=>{
+      if(instanceRef.current!==selected)return;
+      setResults(previous=>new Map(previous).set(row.method,row));
+    });
+    comparisonTask.current=task;
+    try { await task.run(); } finally { if(comparisonTask.current===task)comparisonTask.current=null; }
+  };
+  const cancelComparison=()=>{void comparisonTask.current?.cancel().catch(e=>setComparisonError(e instanceof Error?e.message:'Cancellation failed; retry.'));};
   const create = () => perform('Creating your plan…', async () => {
     if (optimizing) throw new Error('Finish or cancel the current optimization first.');
     const plan = await generatePlan(draft, setBusy);
     optimizationRef.current = null; setOptimizationId(null); setOptimization(null); setOptimizationError(null);
     instanceRef.current = plan.instance.instance_id;
-    setInstance(plan.instance); setResults(plan.results); setDriver(null); setAppliedRunId(null);
+    setComparisonProgress(null); setInstance(plan.instance); setResults(plan.results); setDriver(null); setAppliedRunId(null);
     setSubmittedDraft(draftSignature);
     const shortest = [...plan.results.values()].sort((a, b) => a.total_distance - b.total_distance)[0];
     setMethod((shortest?.method || 'nearest_neighbor') as Method);
@@ -188,7 +203,7 @@ function App() {
     <header className="app-header"><a href="#home" className="brand" aria-label="RouteIQ home"><BrandMark /><span>Route<span className="brand-iq">IQ</span></span></a><nav aria-label="Main navigation">
       {([['home', 'Home'], [instance ? 'routes' : 'setup', 'Route Plan'], ['compare', 'Compare'], ['lab', 'Evolution Lab']] as [View, string][]).map(([target, title]) => <a key={title} href={`#${target}`} aria-current={view === target || title === 'Route Plan' && view === 'setup' ? 'page' : undefined}><Icon name={title === "Home" ? "home" : title === "Route Plan" ? "map" : title === "Compare" ? "compare" : "lab"} size={17}/><span>{title}</span>{title === 'Evolution Lab' && running && <span className="live-dot" aria-label="Experiment running" />}</a>)}
     </nav><span className="header-note">Delivery planning, made clearer.</span></header>
-    <div className="context-bar"><span>{instance ? `${instance.mode === 'road' ? 'Road' : 'Demo'} plan · ${instance.num_stops} stops · ${instance.num_drivers} drivers` : view === 'setup' ? `Draft plan · Step ${step + 1} of 4` : 'No plan selected'}</span>{instance && <span className="instance-id" title={instance.instance_id}>Plan {instance.instance_id.slice(-8)}</span>}{optimizing && <a href="#routes">Optimization · {optimization?.status}</a>}{strategyStatus && <a href="#lab">Strategy experiment · {strategyStatus}</a>}{running && <a href="#lab">Experiment {evolution?.current_generation}/{evolution?.total_generations} · {evolution?.status}</a>}</div>
+    <div className="context-bar"><span>{instance ? `${instance.mode === 'road' ? 'Road' : 'Demo'} plan · ${instance.num_stops} stops · ${instance.num_drivers} drivers` : view === 'setup' ? `Draft plan · Step ${step + 1} of 4` : 'No plan selected'}</span>{instance && <span className="instance-id" title={instance.instance_id}>Plan {instance.instance_id.slice(-8)}</span>}{comparing && <a href="#compare">Route comparison / {comparisonProgress?.status}</a>}{optimizing && <a href="#routes">Optimization · {optimization?.status}</a>}{strategyStatus && <a href="#lab">Strategy experiment · {strategyStatus}</a>}{running && <a href="#lab">Experiment {evolution?.current_generation}/{evolution?.total_generations} · {evolution?.status}</a>}</div>
     <main id="main-content" ref={main} tabIndex={-1} className="app-main">
       {busy && <p role="status" className="notice busy">{busy} Your settings are preserved.</p>}
       {error && <div className="notice error" role="alert"><p>{error}</p><button className="text-button" onClick={() => setError(null)}>Dismiss message</button></div>}
@@ -203,7 +218,7 @@ function App() {
         <OptimizationControls budget={budget} setBudget={setBudget} busy={busyNow} job={optimization} error={optimizationError} onRun={solve} onCancel={cancelOptimization} />
         {currentResult && <OptimizationDetails result={currentResult} mode={instance.mode} />}
       </section> : emptyPlan)}
-      {view === 'compare' && (instance ? <CompareScreen instance={instance} comparison={comparison} loading={comparisonLoading} error={comparisonError} busy={busyNow} evolution={evolution} appliedRunId={appliedRunId} onRetry={() => setRefresh(value => value + 1)} onRun={solve} onView={value => { if (results.has(value)) { setMethod(value); setDriver(null); navigate('routes'); } else void solve(value); }} /> : emptyPlan)}
+      {view === 'compare' && (instance ? <CompareScreen onCompare={runComparison} onCancelComparison={cancelComparison} progress={comparisonProgress} instance={instance} comparison={comparison} loading={comparisonLoading} error={comparisonError} busy={busyNow} evolution={evolution} appliedRunId={appliedRunId} onRetry={() => setRefresh(value => value + 1)} onRun={solve} onView={value => { if (results.has(value)) { setMethod(value); setDriver(null); navigate('routes'); } else void solve(value); }} /> : emptyPlan)}
       {view === 'lab' && <div className="lab-tabs" aria-label="Research workflow"><button className="button secondary" aria-pressed={!legacyLab} onClick={() => setLegacyLab(false)}>Strategy evolution</button><button className="button secondary" aria-pressed={legacyLab} onClick={() => setLegacyLab(true)}>Legacy heuristic lab</button></div>}
       {view === 'lab' && legacyLab && <div className="legacy-lab"><p className="notice">Legacy code-generating workflow. Its synthetic training scores are separate from the Phase 6 fleet-strategy experiments.</p><EvolutionLab config={evoConfig} setConfig={setEvoConfig} evolution={evolution} busy={busyNow} pollError={pollError} hasInstance={!!instance} onStart={start} onCancel={cancel} onApply={() => solve('evolved')} measurement={measurement?.instance_id === instance?.instance_id && measurement?.run_id === evolution?.run_id ? measurement : null} mode={instance?.mode} measuring={measuring} measurementError={measurementError} onMeasure={() => setMeasureAttempt(value => value + 1)} /></div>}
       {labVisited && <div hidden={view !== 'lab' || legacyLab}><StrategyLab hasInstance={!!instance} applying={busyNow} onApply={(job, candidate) => optimize('strategy', job, candidate)} onStatus={setStrategyStatus} /></div>}

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, '../runs/phase8/product-browser');
+const output = path.resolve(root, '../runs/phase9/product-browser');
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
@@ -89,6 +89,7 @@ try {
       await send('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:false}); await delay(100);
       assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,`${name} page overflow at ${width}`);
       assert.equal(await evaluate('document.querySelector("nav").scrollWidth<=document.querySelector("nav").clientWidth'),true,`${name} navigation overflow at ${width}`);
+      if(name==='lab') assert.ok(await evaluate(`document.querySelector('.experiment-choices .choice-card>span').getBoundingClientRect().width>180`),'Experiment choice text must use the card width');
       await screenshot(`${name}-${width}`);
     }
     await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
@@ -133,12 +134,35 @@ try {
   }
   await screenshot('03-routes'); await responsive('routes'); check('All three hybrid methods run through the real API on the same matrix');
   await click('Compare','nav a'); await waitFor(`document.querySelectorAll('.comparison-table .badge').length===5`);
+  const beforePreset=requests.filter(r=>r.pathname==='/api/optimization/jobs').length;
+  await evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Run route comparison').click(); [...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Run route comparison').click()`);
+  await click('Home','nav a'); await click('Compare','nav a');
+  await waitFor(`document.querySelector('.compare-screen')?.textContent.includes('Comparison complete.')`);
+  assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').length,beforePreset+1);
+  assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body.method,'portfolio');
+  check('One-click comparison ignores repeated clicks and survives navigation with one scoped portfolio job');
   await screenshot('04-comparison'); await responsive('compare'); check('Comparison includes actual work, feasibility and termination for measured methods');
-  await click('Evolution Lab','nav a'); await click('Start strategy experiment');
+  await click('Evolution Lab','nav a');
+  const beforeAI=requests.filter(r=>r.pathname==='/api/strategy-experiments').length;
+  await evaluate(`document.querySelectorAll('input[name="experiment-choice"]')[1].click()`);
+  await click('Start strategy experiment'); await waitFor(`document.querySelector('.strategy-lab [role="alert"]')?.textContent.includes('Ollama unavailable')`);
+  assert.equal(requests.filter(r=>r.pathname==='/api/strategy-experiments').length,beforeAI);
+  await evaluate(`document.querySelectorAll('input[name="experiment-choice"]')[0].click()`);
+  check('Unavailable Ollama prevents AI job creation; quick non-LLM choice remains available');
+  await click('Start strategy experiment');
   await waitFor(`!!document.querySelector('[aria-label="Strategy experiment progress"]')`);
   await click('Cancel strategy experiment');
   await waitFor(`document.querySelector('[aria-label="Strategy experiment progress"] h2')?.textContent==='cancelled'`);
   check('Real strategy experiment cancellation reaches a terminal state');
+  await screenshot('11-experiment-choices');
+  await click('Start strategy experiment');
+  await waitFor(`!!document.querySelector('[aria-label="Strategy evolution lab"] .winner-card button:not(:disabled)')`);
+  assert.equal(requests.filter(r=>r.pathname==='/api/strategy-experiments').at(-1).body.arm,'random');
+  assert.equal(requests.filter(r=>r.pathname==='/api/strategy-experiments').at(-1).body.mode,'offline');
+  await evaluate(`document.querySelector('.strategy-progress').scrollIntoView({block:'start'})`);
+  await screenshot('12-quick-result',false);
+  check('Quick non-LLM experiment completes with eligible development evidence using defaults');
+
   await fillLabel('Search control','hand'); await click('Advanced experiment settings','summary'); await fillLabel('Generations',1);
   await click('Start strategy experiment');
   await waitFor(`!!document.querySelector('[aria-label="Strategy evolution lab"] .winner-card button:not(:disabled)')`);
@@ -250,7 +274,7 @@ try {
   await evaluate(`document.querySelectorAll('.driver-select')[1].click()`); await screenshot('09-road-routes-offline-fixtures');
   check('Returned geometry is rendered, unavailable paths stay absent, and road matrix units remain correct');
   await click('Evolution Lab','nav a'); await fillLabel('Search control','llm'); await fillLabel('Generations',2);
-  assert.equal(await evaluate(`document.querySelector('[aria-label="Strategy evolution lab"] select:nth-of-type(1)')?.value`),'llm');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Strategy evolution lab"] select')?.value`),'llm');
   await click('Start strategy experiment');
   await waitFor(`!!document.querySelector('[aria-label="Strategy evolution lab"] .winner-card button:not(:disabled)')`);
   const proposalRun = requests.filter(r=>r.pathname==='/api/strategy-experiments').at(-1);

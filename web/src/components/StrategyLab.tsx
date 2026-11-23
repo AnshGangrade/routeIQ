@@ -1,5 +1,5 @@
 import { ResearchVisuals } from './ResearchVisuals';
-import { sourceLabel } from '../services/presentation';
+import { sourceLabel, experimentStatus } from '../services/presentation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { activeStatus, statusText, watchTask } from '../services/product';
@@ -17,6 +17,8 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
   hasInstance: boolean; applying: boolean; onApply: (job: string, strategy: string) => void;
   onStatus: (status: string | null) => void;
 }) {
+  const sendingRef=useRef(false);
+  const [providerStatus,setProviderStatus]=useState('Model not checked.');
   const [request, setRequest] = useState(initial);
   const [jobId, setJobId] = useState<string | null>(null);
   const [state, setState] = useState<StrategyExperiment | null>(null);
@@ -49,13 +51,20 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
     });
   }, [jobId]);
   const start = async () => {
-    if (sending || running) return;
+    if (sendingRef.current || running) return;
+    sendingRef.current=true;
     setSending(true); setError(null);
     try {
+      if(request.arm==='llm' && request.mode==='ollama') {
+        setProviderStatus('Checking local Ollama...');
+        const checked=await api.checkStrategyProvider(request.provider);
+        setProviderStatus(`${checked.model}: ${checked.message}`);
+        if(!checked.available) throw new Error(checked.message);
+      }
       const response = await api.startStrategy(request);
       latest.current = response.job_id; setState({ status: response.status, job_id: response.job_id }); setJobId(response.job_id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Experiment could not start.'); }
-    finally { setSending(false); }
+    finally { sendingRef.current=false;setSending(false); }
   };
   const cancel = async () => {
     if (!jobId) return;
@@ -66,7 +75,8 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
       setState(s => s ? { ...s, status: result.status } : s);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Cancellation failed. Retry.'); }
   };
-  const best = state?.best_id ? state.records?.[state.best_id] : null;
+  const candidate = state?.best_id ? state.records?.[state.best_id] : null;
+  const best=candidate?.fitness.eligible?candidate:null;
   const records = Object.values(state?.records || {});
   const apply = (record: StrategyRecord) => { if (jobId) onApply(jobId, record.strategy_id); };
   const currentOrigin = (record: StrategyRecord) => sourceLabel(record.creation_method, state?.manifest?.provider_mode === 'offline');
@@ -75,28 +85,38 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
     <div className="notice">The Phase 6B experiment is incomplete: 88 held-out LLM-arm measurements are missing. It does not establish that LLM evolution beats random search. New experiments here use development data only.</div>
     <form className="panel stack strategy-config" onSubmit={e => { e.preventDefault(); void start(); }}>
       <fieldset disabled={sending || running} className="stack"><legend className="sr-only">Strategy experiment configuration</legend>
+        <div className="mode-options experiment-choices">
+          <label className={`choice-card ${request.arm!=='llm'||request.mode!=='ollama'?'chosen':''}`}><input type="radio" name="experiment-choice" checked={request.arm!=='llm'||request.mode!=='ollama'} onChange={()=>setRequest(r=>({...r,arm:'random',mode:'offline'}))}/><span><strong>Quick strategy experiment</strong><small>Try routing strategies automatically. Non-LLM; no model setup required.</small></span></label>
+          <label className={`choice-card ${request.arm==='llm'&&request.mode==='ollama'?'chosen':''}`}><input type="radio" name="experiment-choice" checked={request.arm==='llm'&&request.mode==='ollama'} onChange={()=>{setProviderStatus('Configured model: '+request.provider.model+'. Reachability checked when you start.');setRequest(r=>({...r,arm:'llm',mode:'ollama'}));}}/><span><strong>AI-guided strategy experiment</strong><small>Ask local Ollama for strategy proposals. Model availability is checked before starting.</small></span></label>
+        </div>
+        <p className="small muted">Training uses the same two fixed development benchmark cases. Applying the winner independently evaluates your selected route plan.</p>
+        {request.arm==='llm'&&request.mode==='ollama' && <p role="status" className="notice">{providerStatus} AI-requested runs also contain authored seeds and deterministic mutations. Any random fallback is disclosed separately; it is not AI evidence.</p>}
+        <details><summary>Advanced experiment settings</summary>
         <div className="form-grid"><label>Search control<select value={request.arm} onChange={e => setRequest(r => ({ ...r, arm: e.target.value as StartStrategyRequest['arm'] }))}><option value="random">Random strategy search</option><option value="hand">Hand-authored portfolio</option><option value="llm">LLM-guided evolution</option></select></label>
           {request.arm === 'llm' && <label>Proposal provider<select value={request.mode} onChange={e => setRequest(r => ({ ...r, mode: e.target.value as StartStrategyRequest['mode'] }))}><option value="offline">Offline fixture demo (no live LLM)</option><option value="ollama">Local Ollama (live proposals)</option></select></label>}</div>
-        <p className="small muted">{request.arm === 'hand' ? 'A fixed set of authored configurations. Unused evaluation slots are not spent.' : request.arm === 'random' ? 'Seeded valid configurations, without LLM proposals.' : request.mode === 'offline' ? 'Predefined JSON responses test the workflow. They are not evidence of model reasoning.' : 'Sends development fitness and parent configurations to local Ollama only after you start.'} All controls use the same two development problems and per-case budgets.</p>
-        <details><summary>Advanced experiment settings</summary><div className="form-grid">
+        <p className="small muted">{request.arm==='hand'?'Hand-authored control.':request.arm==='random'?'Random non-LLM search.':request.mode==='offline'?'Offline fixture demo, not AI-generated proposals.':'Live Ollama requested.'}</p><div className="form-grid">
           <label>Generations<input type="number" min="1" max="3" value={request.config.generations} onChange={e => setRequest(r => ({ ...r, config: { ...r.config, generations: Number(e.target.value) } }))} /></label>
           <label>Proposal seed<input type="number" min="0" max="4294967295" value={request.config.seed} onChange={e => setRequest(r => ({ ...r, config: { ...r.config, seed: Number(e.target.value) } }))} /></label>
           {request.arm === 'llm' && request.mode === 'ollama' && <><label>Ollama model<input required value={request.provider.model} onChange={e => setRequest(r => ({ ...r, provider: { ...r.provider, model: e.target.value } }))} /></label><label>Temperature<input type="number" min="0" max="2" step="0.1" value={request.provider.temperature} onChange={e => setRequest(r => ({ ...r, provider: { ...r.provider, temperature: Number(e.target.value) } }))} /></label></>}
         </div><p className="small muted">Population 6 · 36 case evaluations maximum · 20,000 operations / 10 seconds per evaluation · 180 seconds per arm · solver seed 0. Generation means a round of candidates; diversity counts distinct configurations and route behaviors. The same proposal seed does not guarantee deterministic live model outputs.</p></details>
-        <button className="button primary fit" type="submit">{sending ? 'Starting…' : 'Start strategy experiment'}</button>
+        <button className={`button ${best?'secondary':'primary'} fit`} type="submit">{sending ? 'Starting…' : 'Start strategy experiment'}</button>
       </fieldset>
     </form>
-    <ResearchVisuals state={state}/>
+
     {error && <p className="notice error" role="alert">{error}</p>}
-    {state && <section className="panel stack strategy-progress" aria-label="Strategy experiment progress"><div className="section-heading"><h2>{statusText(state.status)}</h2>{running && <button className="button secondary" onClick={cancel} disabled={state.status === 'cancelling'}>Cancel strategy experiment</button>}</div>
-      <p className="small muted">Job {jobId} · {statusText(state.termination || 'development evaluation')}</p>
+    {state && <section className="panel stack strategy-progress" aria-label="Strategy experiment progress"><div className="section-heading"><h2>{experimentStatus(state)}</h2>{running && <button className="button secondary" onClick={cancel} disabled={state.status === 'cancelling'}>Cancel strategy experiment</button>}</div>
+      <details className="research-details"><summary>Research details / work, tokens &amp; proposal rejections</summary><p className="small muted">Job {jobId} / loop status {state.status} · {statusText(state.termination || 'development evaluation')}</p>
       <dl className="execution-grid"><div><dt>Generation</dt><dd>{state.generation ?? 0} / {state.manifest?.config.generations ?? request.config.generations}</dd></div><div><dt>Current population</dt><dd>{state.population?.length ?? 0} / {state.manifest?.config.population_size ?? 6}</dd></div><div><dt>Case evaluations reserved</dt><dd>{state.reserved_evaluations ?? 0}</dd></div><div><dt>Measured work</dt><dd>{(state.actual_operations ?? 0).toLocaleString()}</dd></div><div><dt>Provider requests</dt><dd>{state.provider_usage?.reduce((n, u) => n + u.calls, 0) ?? 0}</dd></div><div><dt>Tokens</dt><dd>{state.llm_tokens == null ? 'Unavailable' : state.llm_tokens}</dd></div></dl>
       {!!Object.keys(state.rejections || {}).length && <p className="notice">Rejected proposals: {Object.entries(state.rejections || {}).map(([key, value]) => `${statusText(key)}: ${value}`).join(' · ')}. Provider failures may trigger separately recorded random fallback under the existing engine policy.</p>}
+      </details>
+      {state.manifest?.arm==='llm' && <p className="notice">{state.manifest.provider_mode==='offline'?'Offline fixture (not an LLM)':'AI-requested experiment: inspect actual proposal sources below.'} {state.manifest.provider_mode==='offline'?'Recorded fixture proposals:':'Recorded LLM proposals:'} {records.filter(r=>r.creation_method==='llm').length}; random configurations: {records.filter(r=>r.creation_method==='random').length}. {state.manifest.provider_mode!=='offline' && !records.some(r=>r.creation_method==='llm') && 'No accepted LLM proposal is recorded; this is not evidence of AI improvement.'}</p>}
       {best && <div className="winner-card"><p className="eyebrow">Best development fitness · lower is better</p><h3>{best.fitness.mean_distance?.toFixed(2) ?? 'Unavailable'} map units</h3><p>{currentOrigin(best)} · {best.fitness.completed} completed / {best.fitness.incomplete} incomplete / {best.fitness.failed} failed case evaluations.</p><p className="small muted">Training fitness is not a route distance for your selected plan. Applying recalculates routes on that plan’s matrix.</p><button className="button primary" disabled={!hasInstance || applying || !!error || !['completed','stopped'].includes(state.status) || !best.fitness.eligible} onClick={() => apply(best)}>Apply strategy to current plan</button>{!hasInstance && <p className="small">Create a route plan before applying a strategy.</p>}</div>}
+      <ResearchVisuals state={state}/>
+      <details><summary>Research details / candidate records, history &amp; export</summary>
       {!!state.history?.length && <div className="table-scroll"><table><caption>Best-so-far training fitness and diversity</caption><thead><tr><th>Round</th><th>Best mean distance</th><th>Configurations</th><th>Route behaviors</th></tr></thead><tbody>{state.history.map(h => <tr key={h.generation}><th>{h.generation + 1}</th><td>{h.best_so_far?.toFixed(2) ?? 'Unavailable'} map units</td><td>{h.unique_configurations}</td><td>{h.behavioral_diversity}</td></tr>)}</tbody></table></div>}
       <details><summary>Candidate configurations and lineage ({records.length})</summary>{records.map(record => <article key={record.strategy_id} className="candidate-record"><h3>{currentOrigin(record)} · generation {record.generation}</h3><p className="small mono">{record.strategy_id}</p><p className="small">Parents: {record.parents.join(', ') || 'None (initial or independent proposal)'}</p><p>{record.rationale}</p><p className="small">Mean distance: {record.fitness.mean_distance?.toFixed(2) ?? 'Not measured'} · completed {record.fitness.completed ?? 0}, incomplete {record.fitness.incomplete ?? 0}, failed {record.fitness.failed ?? 0}</p><pre>{JSON.stringify(record.config, null, 2)}</pre></article>)}</details>
-      <button className="button secondary fit" onClick={async () => { if (!jobId) return; try { const data = await api.strategyExport(jobId); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = `routeiq-${jobId}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { setError('Export unavailable. Retry when the backend is reachable.'); } }}>Export experiment JSON</button>
+      <button className="button secondary fit" onClick={async () => { if (!jobId) return; try { const data = await api.strategyExport(jobId); const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = `routeiq-${jobId}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); } catch { setError('Export unavailable. Retry when the backend is reachable.'); } }}>Export experiment JSON</button></details>
     </section>}
-    {!!saved.length && <section className="panel"><h2>Experiment history & controls</h2><p className="small muted">Recorded development runs in this tab. Selected training results are not held-out evidence; differing seeds and budgets are not paired comparisons.</p><div className="table-scroll"><table><thead><tr><th>Control</th><th>Status</th><th>Best training mean</th><th>Work</th><th>Inspect</th></tr></thead><tbody>{saved.map(item => <tr key={item.id}><th>{statusText(item.state.manifest?.arm)} · {item.state.manifest?.provider_mode}</th><td>{statusText(item.state.status)}</td><td>{item.state.best_id ? item.state.records?.[item.state.best_id]?.fitness.mean_distance?.toFixed(2) : 'Unavailable'}</td><td>{item.state.actual_operations?.toLocaleString()}</td><td><button className="text-button" disabled={running} onClick={() => { latest.current = item.id; setJobId(item.id); setState(item.state); }}>Inspect run</button></td></tr>)}</tbody></table></div></section>}
+    {!!saved.length && <details className="panel"><summary>Research details / experiment history & controls</summary><p className="small muted">Recorded development runs in this tab. Selected training results are not held-out evidence; differing seeds and budgets are not paired comparisons.</p><div className="table-scroll"><table><thead><tr><th>Control</th><th>Status</th><th>Best training mean</th><th>Work</th><th>Inspect</th></tr></thead><tbody>{saved.map(item => <tr key={item.id}><th>{statusText(item.state.manifest?.arm)} · {item.state.manifest?.provider_mode}</th><td>{statusText(item.state.status)}</td><td>{item.state.best_id ? item.state.records?.[item.state.best_id]?.fitness.mean_distance?.toFixed(2) : 'Unavailable'}</td><td>{item.state.actual_operations?.toLocaleString()}</td><td><button className="text-button" disabled={running} onClick={() => { latest.current = item.id; setJobId(item.id); setState(item.state); }}>Inspect run</button></td></tr>)}</tbody></table></div></details>}
   </section>;
 }

@@ -7,3 +7,11 @@ export function finiteSeries(values: Array<number | null | undefined>) {
   const finite = values.filter((v): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0);
   return { min: finite.length ? Math.min(...finite) : 0, max: finite.length ? Math.max(...finite) : 0, count: finite.length };
 }
+
+/** A completed generation loop does not mean every bounded evaluation completed. */
+export function experimentStatus(state: import('../types/api').StrategyExperiment) {
+  const records=Object.values(state.records||{});
+  if(state.status==='completed' && records.some(r=>r.fitness.failed>0)) return 'Finished with evaluation failures';
+  if(state.status==='completed' && records.some(r=>r.fitness.incomplete>0)) return 'Finished with incomplete evaluations';
+  return state.status.replace(/_/g,' ');
+}

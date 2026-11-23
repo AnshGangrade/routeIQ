@@ -83,6 +83,36 @@ def start(request:StartRequest,tasks:BackgroundTasks):
     return register(uuid.uuid4().hex,request,tasks)
 
 
+def check_provider(config):
+    """Bounded loopback-only model inventory probe; never generates proposals."""
+    import httpx
+    import time
+    started=time.monotonic()
+    try:
+        with httpx.Client(trust_env=False, follow_redirects=False, timeout=3.) as client:
+            with client.stream('GET', config.endpoint+'/api/tags') as response:
+                response.raise_for_status()
+                data=bytearray()
+                for chunk in response.iter_bytes(chunk_size=4096):
+                    data.extend(chunk)
+                    if time.monotonic()-started>3 or len(data)>262144: raise ValueError('Inventory too large')
+            body=json.loads(data)
+            if not isinstance(body,dict): raise ValueError('Invalid inventory')
+            models=body.get('models',[])
+            if not isinstance(models,list): raise ValueError('Invalid model list')
+            available=any(isinstance(m,dict) and m.get('name')==config.model for m in models)
+            return {'configured':True,'reachable':True,'available':available,'model':config.model,
+                    'message':'Model available' if available else 'Model is not installed in Ollama. Install the exact model shown in Advanced settings, then retry.'}
+    except (httpx.HTTPError,ValueError,TypeError,KeyError):
+        return {'configured':True,'reachable':False,'available':False,'model':config.model,
+                'message':'Cannot reach local Ollama or read its model inventory. Start Ollama and retry, or choose Quick strategy experiment.'}
+
+
+@router.post('/provider/check')
+def provider_check(config:ProviderConfig):
+    return check_provider(config)
+
+
 @router.get('/{job_id}')
 def status(job_id:str):
     state=snapshot(job_id)
