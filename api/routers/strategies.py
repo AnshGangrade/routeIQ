@@ -98,14 +98,18 @@ def check_provider(config):
                     if time.monotonic()-started>3 or len(data)>262144: raise ValueError('Inventory too large')
             body=json.loads(data)
             if not isinstance(body,dict): raise ValueError('Invalid inventory')
-            models=body.get('models',[])
-            if not isinstance(models,list): raise ValueError('Invalid model list')
+            models=body.get('models')
+            if not isinstance(models,list) or any(not isinstance(m,dict) or not isinstance(m.get('name'),str) for m in models): raise ValueError('Invalid model list')
             available=any(isinstance(m,dict) and m.get('name')==config.model for m in models)
             return {'configured':True,'reachable':True,'available':available,'model':config.model,
+                    'status':'available' if available else 'model_missing',
                     'message':'Model available' if available else 'Model is not installed in Ollama. Install the exact model shown in Advanced settings, then retry.'}
+    except (httpx.ConnectError,httpx.ConnectTimeout):
+        return {'configured':True,'reachable':False,'available':False,'model':config.model,
+                'status':'unreachable','message':'Local Ollama is unreachable. Install or start Ollama, then retry. Installation cannot be determined remotely. Random baseline remains available.'}
     except (httpx.HTTPError,ValueError,TypeError,KeyError):
         return {'configured':True,'reachable':False,'available':False,'model':config.model,
-                'message':'Cannot reach local Ollama or read its model inventory. Start Ollama and retry, or choose Quick strategy experiment.'}
+                'status':'check_failed','message':'Provider check failed or returned an invalid inventory. Check the local Ollama service and retry. Random baseline remains available.'}
 
 
 @router.post('/provider/check')

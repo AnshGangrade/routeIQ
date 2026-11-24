@@ -2,6 +2,7 @@
 require('./phase3.cjs');
 require('./product.cjs');
 require('./visual-design.cjs');
+require('./experiments.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const React = require('react');

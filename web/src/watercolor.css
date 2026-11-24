@@ -290,3 +290,8 @@ caption { text-align:left; font-size:.66rem; color:var(--muted); padding-bottom:
 
 .comparison-action { display:flex; justify-content:space-between; gap:24px; align-items:center; }.comparison-action h2 { font-size:1.25rem; }.comparison-action p { color:var(--muted); max-width:650px; }.experiment-choices { display:grid; gap:16px; }.experiment-choices label.choice-card { min-height:140px; grid-template-columns:1fr; padding:22px 40px 22px 22px; }.research-details { padding:12px 0; }
 @media(max-width:700px) { .comparison-action { align-items:stretch; flex-direction:column; }.experiment-choices { grid-template-columns:1fr; } }
+/* Keep the full experiment label legible without widening the mobile page. */
+@media (max-width: 800px) {
+  .app-header nav a { white-space: normal; min-width: 0; }
+  .app-header nav a span { overflow-wrap: normal; }
+}

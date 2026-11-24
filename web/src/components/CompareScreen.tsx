@@ -22,7 +22,7 @@ export function CompareScreen({ instance, comparison, loading, error, busy, evol
   const best = recommendedResult(defaults);
   const nn = measured.find(r => r.method === 'nearest_neighbor');
   const final = measured.find(r => r.method === 'evolved');
-  const methods: Method[] = ['nearest_neighbor', '2opt', 'portfolio', 'vnd', 'vnd_ils', 'strategy', 'evolved'];
+  const methods: Method[] = ['nearest_neighbor', '2opt', 'portfolio', 'vnd', 'vnd_ils', 'strategy', ...(evolution || final ? ['evolved' as Method] : [])];
   return <section className="stack compare-screen"><div className="page-heading"><div><p className="eyebrow">Evidence, side by side</p><h1>Compare routes</h1><p>Measured on the same {instance.num_stops} stops and {instance.num_drivers} drivers. Lower distance is better.</p></div><a className="button secondary" href="#routes">Back to routes</a></div>
     <div className="panel comparison-action"><div><h2>Find a dependable route</h2><p>Compare a starting plan, a refined plan, and a trusted construction portfolio on these same stops.</p></div><button className="button primary" disabled={busy || loading} onClick={onCompare}>Run route comparison</button></div>
     {progress && <div className="notice" role="status"><strong>{progress.status}</strong><p>{progress.stage}</p>{progress.errors.map(e=><p key={e}>{e}</p>)}{['running','cancelling'].includes(progress.status)&&<button className="text-button" onClick={onCancelComparison}>Cancel comparison</button>}</div>}
@@ -47,7 +47,7 @@ export function CompareScreen({ instance, comparison, loading, error, busy, evol
             <td>{result?.execution?.operations == null ? result ? 'Not instrumented' : 'Unavailable' : result.execution.operations.toLocaleString()}</td>
             <td>{result ? <><span className={`badge ${result.execution?.status === 'incomplete' ? 'warning' : ''}`}>{statusText(result.execution?.status || 'measured')}</span><small className="cell-note">{result.feasible ? 'Validated' : 'Feasibility not reported'}{result.execution?.budget_exhausted ? ' - budget exhausted' : ''}</small><small className="cell-note">{result.execution ? statusText(result.execution.termination) : ''}</small></> : rejected ? rejected.execution?.status==='failed'?'Failed evaluation':'Unverified result' : 'Not run'}</td>
             <td>{result ? <button className="text-button" disabled={busy} onClick={() => onView(method)}>View {methodNames[method]} routes</button> : method === 'strategy' || method === 'evolved' && evolution?.status !== 'completed'
-              ? <a className="text-button" href="#lab">Open Evolution Lab</a>
+              ? <a className="text-button" href="#lab">Open Strategy Experiments</a>
               : <button className="text-button" disabled={busy || loading} onClick={() => onRun(method)}>{method === 'evolved' ? 'Apply final route to this plan' : `Calculate ${methodNames[method]}`}</button>}</td></tr>;
         })}
       </tbody></table></div>
@@ -59,6 +59,6 @@ export function CompareScreen({ instance, comparison, loading, error, busy, evol
     </div>
     {best?.drivers?.length ? <section className="panel"><h2>Recommended driver routes</h2><p>{instance.num_drivers} drivers / {instance.num_stops} stops</p>{best.drivers.map(d=><div className="balance-row" key={d.driver_id}><span>Driver {d.driver_id+1} / {d.route.length-2} stops</span><strong>{formatDistance(d.distance,instance.mode)}</strong></div>)}</section>:null}
     {measured.some(r => r.drivers?.length) && <details className="panel"><summary>Advanced driver distances & workloads</summary><p className="small muted">Balanced stop counts do not guarantee equal driving distances. Compare individual routes as well as the fleet total.</p><div className="balance-grid">{measured.filter(r => r.drivers?.length).map(result => <div key={result.method}><h3>{methodNames[result.method as Method]}</h3>{result.drivers!.map(driver => <div className="balance-row" key={driver.driver_id}><span>Driver {driver.driver_id + 1} / {driver.route.length - 2} stops</span><strong>{formatDistance(driver.distance, instance.mode)}</strong><div className="balance-track" aria-hidden="true"><span style={{ width: `${result.longest_route_distance > 0 ? driver.distance / result.longest_route_distance * 100 : 0}%` }} /></div></div>)}</div>)}</div></details>}
-    <details className="panel"><summary>Legacy held-out research evaluation</summary><EvaluationSummary evolution={evolution} /></details>
+    {evolution && <details className="panel"><summary>Legacy held-out research evaluation</summary><EvaluationSummary evolution={evolution} /></details>}
   </section>;
 }

@@ -230,7 +230,7 @@ export interface StrategyExperiment {
   actual_operations?: number; reserved_evaluations?: number; llm_calls?: number; llm_tokens?: number | null;
   elapsed_seconds?: number; proposals_by_source?: Record<string, number>; rejections?: Record<string, number>;
   provider_usage?: Array<{ calls: number; seconds: number; tokens: number | null; error: string | null; mode: string }>;
-  manifest?: { arm: string; config: { generations: number; population_size: number; case_ids: string[] }; provider_mode: string };
+  manifest?: { arm: string; config: { generations: number; population_size: number; case_ids: string[] }; provider_mode: string; software?: unknown; panel?: unknown };
 }
 export interface StartStrategyRequest {
   arm: 'llm' | 'random' | 'hand'; mode: 'offline' | 'ollama';

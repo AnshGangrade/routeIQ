@@ -1,0 +1,80 @@
+{
+  "schema": "paired-strategy-study/v1",
+  "model": "qwen3:1.7b",
+  "provider": {
+    "model": "qwen3:1.7b",
+    "endpoint": "http://127.0.0.1:11434",
+    "temperature": 0.3,
+    "timeout": 20.0,
+    "retries": 1,
+    "max_tokens": 2048,
+    "max_response_bytes": 65536
+  },
+  "seeds": [
+    3101,
+    3102,
+    3103
+  ],
+  "config": {
+    "schema_version": "strategy-experiment/v1",
+    "case_ids": [
+      "development-n20-k1-uniform-symmetric-r0",
+      "development-n20-k2-clustered-directed-r1",
+      "development-n20-k3-mixed_density-symmetric-r2",
+      "development-n50-k5-uniform-directed-r0",
+      "development-n50-k10-clustered-symmetric-r1",
+      "development-n50-k1-mixed_density-directed-r2",
+      "development-n100-k2-uniform-symmetric-r0",
+      "development-n100-k3-clustered-directed-r1",
+      "development-n100-k5-mixed_density-symmetric-r2",
+      "development-n200-k10-uniform-directed-r0",
+      "development-n200-k1-clustered-symmetric-r1",
+      "development-n200-k2-mixed_density-directed-r2"
+    ],
+    "seed": 3101,
+    "search_seed": 0,
+    "population_size": 6,
+    "generations": 3,
+    "elites": 2,
+    "max_proposals": 120,
+    "max_llm_calls": 6,
+    "max_evaluations": 216,
+    "operations_per_evaluation": 20000,
+    "seconds_per_evaluation": 10.0,
+    "max_total_operations": 4320000,
+    "max_seconds": 600.0
+  },
+  "validation_cases": [
+    "validation-n20-k1-uniform-symmetric-r0",
+    "validation-n20-k2-clustered-directed-r1",
+    "validation-n20-k3-mixed_density-symmetric-r2",
+    "validation-n50-k5-uniform-directed-r0",
+    "validation-n50-k10-clustered-symmetric-r1",
+    "validation-n50-k1-mixed_density-directed-r2",
+    "validation-n100-k2-uniform-symmetric-r0",
+    "validation-n100-k3-clustered-directed-r1",
+    "validation-n100-k5-mixed_density-symmetric-r2",
+    "validation-n200-k10-uniform-directed-r0",
+    "validation-n200-k1-clustered-symmetric-r1",
+    "validation-n200-k2-mixed_density-directed-r2"
+  ],
+  "arm_order": [
+    [
+      "random",
+      "llm"
+    ],
+    [
+      "llm",
+      "random"
+    ],
+    [
+      "random",
+      "llm"
+    ]
+  ],
+  "validation_rule": "Exactly one development winner per arm per replicate; evaluate once on the registered validation cases. No feedback, mutation or tuning after validation.",
+  "heldout_rule": "Not authorized by this runner. No held-out access or evaluation. Existing consumed guards remain unchanged.",
+  "analysis": "Paired random minus LLM distance on identical cases; complete-only and feasible bounded incomplete strata separately. Report all missing cases. Bootstrap whole replicate means with fixed seed 7301; exploratory with only three replicates.",
+  "attribution": "LLM arm includes authored seeds, random initialization, deterministic mutation and crossover. Measures the mixed proposal policy, not isolated causal LLM value.",
+  "budgets": "Unchanged historical Phase 6B allocation. Equal caps; provider latency consumes arm wall cap; report actual work separately. No tuning from historical held-out outcomes."
+}

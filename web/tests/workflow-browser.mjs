@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, '../runs/phase9/legacy-browser');
+const output = path.resolve(root, '../runs/strategy-experiments-refinement/workflow-browser');
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
@@ -23,6 +23,8 @@ const requests = [], blocked = [], errors = [], checks = [];
 let cancelledInterceptions = 0;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const instances = new Map(), routes = new Map(), runs = new Map();
+const strategyJobs=new Map(),optimizationJobs=new Map();
+let providerState='unreachable';
 let runNumber = 0, holdRun = true, pollFailures = 1, roadFailure = false, partialFailure = false;
 function apiResponse(url, request) {
   const pathname = new URL(url).pathname;
@@ -47,6 +49,32 @@ function apiResponse(url, request) {
     if (body.method === 'evolved') Object.assign(result, { run_id: body.run_id, optimization: { nearest_neighbor_distance: 100, two_opt_distance: 80, best_baseline_distance: 80, raw_evolved_distance: 90, refined_evolved_distance: null, selected_source: '2opt', baseline_retained: true, improvement_percent: 0, errors: {} } });
     if (!body.preview) routes.set(body.instance_id + ':' + body.method, result); return [200, result];
   }
+  if (pathname === '/api/strategy-experiments/provider/check' && providerState==='bad_payload') return [200,{available:true}];
+  if (pathname === '/api/strategy-experiments/provider/check') return [200,{configured:true,reachable:['available','model_missing'].includes(providerState),available:providerState==='available',status:providerState,model:body.model,message:providerState==='available'?'Model available':providerState==='model_missing'?'Requested model missing; install it and retry.':providerState==='check_failed'?'Provider check failed; retry.':'Ollama unreachable; start it and retry.'}];
+  if (pathname === '/api/strategy-experiments') {
+    const job_id=`strategy-${strategyJobs.size+1}`;
+    const record={strategy_id:'winner',parents:[],generation:0,creation_method:'seed',rationale:'Authored test fixture',config:{},fitness:{eligible:true,mean_distance:100,completed:1,incomplete:1,failed:0,operations:10,seconds:.1}};
+    strategyJobs.set(job_id,{job_id,status:'running',generation:1,reserved_evaluations:2,manifest:{arm:body.arm,provider_mode:body.mode,config:body.config},records:{winner:record},history:[{generation:0,best_so_far:100,unique_configurations:1,behavioral_diversity:1}],best_id:null});
+    return [200,{job_id,status:'pending'}];
+  }
+  if (pathname.startsWith('/api/strategy-experiments/')) {
+    const id=pathname.split('/')[3],job=strategyJobs.get(id);assert.ok(job);
+    if (pathname.endsWith('/cancel')) {job.status='cancelling';return [200,{job_id:id,status:job.status}];}
+    if (pollFailures-- >0) return [503,{detail:'Temporary polling failure'}];
+    if(job.status==='cancelling')job.status='cancelled';
+    if(!holdRun && job.status==='running'){job.status='completed';job.best_id='winner';}
+    return [200,job];
+  }
+  if(pathname==='/api/optimization/jobs') {
+    assert.equal(strategyJobs.get(body.strategy_job_id).status,'completed');
+    const job_id=`optimization-${optimizationJobs.size+1}`;
+    const original=routes.get(body.instance_id+':2opt');assert.ok(original);
+    const result={...original,method:'strategy',feasible:true};
+    routes.set(body.instance_id+':strategy',result);
+    const job={job_id,instance_id:body.instance_id,method:'strategy',status:'completed',result};
+    optimizationJobs.set(job_id,job);return [200,job];
+  }
+  if(pathname.startsWith('/api/optimization/jobs/'))return [200,optimizationJobs.get(pathname.split('/')[4])];
   if (pathname.endsWith('/comparison')) {
     const id = pathname.split('/')[3], instance = instances.get(id);
     return [200, { instance_id: id, num_stops: instance.num_stops, num_drivers: instance.num_drivers, comparisons: [...routes.values()].filter(r => r.instance_id === id) }];
@@ -161,34 +189,41 @@ try {
   await screenshot('04-comparison'); check('Compare is separate and shows only measured same-plan results');
   await evaluate('history.back()'); await waitFor(`document.querySelector('h1')?.textContent.includes('ready to explore')`);
   await evaluate('history.forward()'); await waitFor(`!!document.querySelector('.comparison-grid')`); check('Browser Back and Forward preserve the selected route plan');
-  await click('Evolution Lab', 'nav a'); await click('Legacy heuristic lab');
-  assert.equal(await evaluate(`document.querySelector('form details').open`), false);
-  assert.deepEqual(await evaluate(`Array.from(document.querySelectorAll('.legacy-lab form select option')).map(o => o.textContent)`), ['Live LLM', 'Offline Demo']);
-  await fillLabel('Experiment mode', 'live');
-  assert.match(await evaluate(`document.querySelector('form').textContent`), /configured provider/);
-  await fillLabel('Experiment mode', 'live');
-  check('Exactly two experiment modes map to live and mock requests');
-  await click('Start experiment'); await waitFor(`document.body.textContent.includes('Progress unavailable')`);
-  await waitFor(`document.body.textContent.includes('candidates 1/4')`);
-  await click('Route Plan', 'nav a'); assert.equal(await evaluate(`document.querySelector('.context-bar').textContent.includes('running')`), true);
-  await click('Evolution Lab', 'nav a'); await click('Cancel evolution'); await waitFor(`document.body.textContent.includes('Evolution cancelled')`);
-  assert.equal(requests.find(r => r.pathname.endsWith('/cancel')).pathname, '/api/evolution/runs/run-1/cancel'); check('Polling recovers, progress survives navigation, cancellation reaches terminal state');
-  assert.equal(requests.find(r => r.pathname === '/api/evolution/runs').body.mode, 'live');
-  holdRun = false;
-  await fillLabel('Experiment mode', 'mock');
-  await click('Start experiment'); await waitFor(`!!document.querySelector('[aria-label="Validated winner"]')`);
-  assert.match(await evaluate(`document.querySelector('[aria-label="Held-out performance"]').textContent`), /9.1% longer/);
-  await waitFor(`!!document.querySelector('[aria-label="Current-plan selection"]')`);
-  assert.match(await evaluate(`document.querySelector('[aria-label="Current-plan selection"]').textContent`), /Baseline retained/);
-  assert.match(await evaluate(`document.querySelector('[aria-label="Current-plan selection"]').textContent`), /12.5% longer/);
-  assert.equal(routes.has('plan-1:evolved'), false);
-  assert.equal(requests.filter(r => r.pathname === '/api/evolution/runs').at(-1).body.mode, 'mock');
-  check('Preview measures the raw loss and baseline fallback without applying it');
-  await screenshot('05-evolution-lab');
-  await click('Apply final route to this plan'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80.00 map units')`);
-  const application = requests.filter(r => r.pathname === '/api/routing/solve').at(-1).body;
-  assert.deepEqual(application, { instance_id: 'plan-1', method: 'evolved', run_id: 'run-2' });
-  await click('Compare', 'nav a'); await waitFor(`document.querySelector('.comparison-grid')?.textContent.includes('Baseline retained')`); check('Winner application targets the selected instance and displays recomputed fleet results');
+  await click('Strategy Experiments','nav a');
+  assert.equal(await evaluate(`document.querySelector('form details').open`),false);
+  assert.equal(await evaluate(`document.querySelectorAll('.lab-tabs,.legacy-lab').length`),0);
+  assert.equal(await evaluate(`document.querySelectorAll('nav a[href="#lab"]').length`),1);
+  await evaluate(`document.querySelectorAll('input[name="experiment-choice"]')[1].click()`);
+  for(const status of ['unreachable','model_missing','check_failed','bad_payload','available']) {
+    providerState=status;await click('Retry provider check');
+    await waitFor(`document.querySelector('.strategy-lab [role="status"]')?.textContent.includes(${JSON.stringify(status==='available'?'Model available':status==='model_missing'?'Requested model missing':['check_failed','bad_payload'].includes(status)?'Provider check failed':'Ollama unreachable')})`);
+    assert.equal(await evaluate(`document.querySelector('button[type="submit"]').disabled`),status!=='available');
+  }
+  assert.equal(strategyJobs.size,0);check('One page, no tabs; all provider states gate AI submission without starting a job');
+  providerState='unreachable';await click('Run experiment');await waitFor(`document.querySelector('.strategy-lab [role="alert"]')?.textContent.includes('unreachable')`);
+  assert.equal(strategyJobs.size,0);assert.equal(await evaluate(`document.querySelector('button[type="submit"]').disabled`),true);
+  providerState='available';await click('Retry provider check');await waitFor(`!document.querySelector('button[type="submit"]').disabled`);
+  check('Provider disappearing after preflight blocks submission and requires a successful retry');
+  await click('Run experiment');await waitFor(`document.body.textContent.includes('Progress unavailable')`);
+  await waitFor(`document.querySelector('.strategy-progress h2')?.textContent==='running'`);
+  await click('Route Plan','nav a');assert.equal(await evaluate(`document.querySelector('.context-bar').textContent.includes('running')`),true);
+  await click('Strategy Experiments','nav a');await click('Cancel strategy experiment');
+  await waitFor(`document.querySelector('.strategy-progress h2')?.textContent==='cancelled'`);
+  assert.equal(requests.find(r=>r.pathname.endsWith('/cancel')).pathname,'/api/strategy-experiments/strategy-1/cancel');
+  check('Polling recovers, progress survives navigation, cancellation reaches terminal state');
+  holdRun=false;await evaluate(`document.querySelectorAll('input[name="experiment-choice"]')[0].click()`);
+  await click('Run experiment');await waitFor(`!!document.querySelector('.winner-card button:not(:disabled)')`);
+  assert.equal(requests.filter(r=>r.pathname==='/api/strategy-experiments').at(-1).body.mode,'offline');
+  assert.match(await evaluate(`document.querySelector('.strategy-progress').textContent`),/incomplete/);
+  assert.match(await evaluate(`document.querySelector('.strategy-progress').textContent`),/No evaluated live LLM proposal/);
+  assert.equal(routes.has('plan-1:strategy'),false);
+  check('Development score and incomplete evidence remain separate from unapplied route results');
+  await screenshot('05-strategy-experiments-desktop');
+  await click('Apply strategy to current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
+  const application=requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body;
+  assert.equal(application.instance_id,'plan-1');assert.equal(application.strategy_job_id,'strategy-2');assert.equal(application.strategy_id,'winner');
+  await click('Compare','nav a');await waitFor(`document.querySelector('.comparison-grid')?.textContent.includes('80.00 map units')`);
+  check('Winner application targets selected instance and displays recomputed fleet results');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
   await screenshot('06-comparison-mobile');
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true); check('Small viewport comparison has no horizontal page overflow');
@@ -200,8 +235,8 @@ try {
   await click('Generate routes'); await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('Refinement temporarily unavailable')`);
   assert.match(await evaluate(`document.querySelector('.route-summary').textContent`), /100.00 map units/);
   partialFailure = false; await click('2-Opt'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80.00 map units')`); check('Partial routing failures retain usable results and retry successfully');
-  await click('Apply evolved winner'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80.00 map units')`);
-  assert.equal(requests.filter(r => r.pathname === '/api/routing/solve').at(-1).body.instance_id, 'plan-2'); check('Same winner recomputes against a different selected instance');
+  await click('Strategy Experiments','nav a');await screenshot('09-strategy-experiments-mobile');await click('Apply strategy to current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
+  assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body.instance_id,'plan-2'); check('Same winner recomputes against a different selected instance');
   assert.equal(blocked.length, 0); check('Synthetic workflow loads no external browser resources');
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await click('Edit plan'); await evaluate(`document.querySelectorAll('input[name="route-mode"]')[1].click()`); await click('Continue');

@@ -108,7 +108,7 @@ test('execution details distinguish retained and raw distances with honest budge
 
 test('Phase 6 lab defaults offline, explains controls and does not claim superiority', () => {
   const html=renderToStaticMarkup(React.createElement(StrategyLab,{hasInstance:false,applying:false,onApply(){},onStatus(){}}));
-  assert.match(html,/Random strategy search/); assert.match(html,/Hand-authored portfolio/); assert.match(html,/LLM-guided evolution/);
+  assert.match(html,/Random strategy search/); assert.match(html,/Hand-authored portfolio/); assert.match(html,/AI-guided proposals/);
   assert.match(html,/88 held-out/); assert.match(html,/does not establish/); assert.match(html,/development data only/);
   assert.doesNotMatch(html,/<details open/); assert.doesNotMatch(html,/Apply strategy to current plan/);
 });
