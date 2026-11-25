@@ -16,6 +16,8 @@ from api.routers import routing, strategies
 from engine.routing.search import SearchConfig, solve_hybrid
 from engine.routing.validation import validate_fleet_solution
 from engine.strategies.models import StrictModel, StrategyRecord
+from engine.strategies.adaptive import AdaptiveController, ControllerUnavailable
+from engine.strategies.adaptive_models import AdaptiveRequest
 
 router = APIRouter()
 jobs: dict = {}
@@ -26,15 +28,18 @@ MAX_ACTIVE = 2
 
 class OptimizeRequest(StrictModel):
     instance_id: str = Field(min_length=1, max_length=100)
-    method: Literal['portfolio', 'vnd', 'vnd_ils', 'strategy'] = 'vnd'
+    method: Literal['portfolio', 'vnd', 'vnd_ils', 'strategy', 'adaptive'] = 'vnd'
     operations: int = Field(100000, strict=True, ge=0, le=500000)
     seconds: float = Field(10., ge=0, le=30)
     search_seed: int = Field(0, strict=True, ge=0, le=4294967295)
     strategy_job_id: str | None = Field(None, max_length=100)
     strategy_id: str | None = Field(None, max_length=200)
+    adaptive: AdaptiveRequest | None = None
 
     @model_validator(mode='after')
     def strategy_identity(self):
+        if (self.method=='adaptive') != (self.adaptive is not None):
+            raise ValueError('Adaptive optimization requires explicit provider/controller configuration')
         if self.method == 'strategy' and not (self.strategy_job_id and self.strategy_id):
             raise ValueError('Select an evaluated strategy and its experiment')
         if self.method != 'strategy' and (self.strategy_job_id or self.strategy_id):
@@ -78,15 +83,20 @@ def execute(job_id, request, resolved):
     def update(**values):
         with lock:
             entry['state'].update(values)
+    controller=None
     try:
         if cancel.is_set():
             update(status='cancelled', stage='finished', termination='cancelled')
             return
         update(status='running', stage='optimizing')
+        if request.adaptive is not None:
+            experience=[strategies.snapshot(i) for i in request.adaptive.experience_job_ids]
+            controller=AdaptiveController(request.adaptive,experience=experience,
+                progress=lambda evidence:update(stage='adaptive_search',controller=evidence))
         with storage.expensive_request():
             outcome = solve_hybrid(problem, construction_strategy=constructor, config=config,
                 search_seed=request.search_seed, operation_budget=request.operations,
-                time_limit_seconds=request.seconds, should_cancel=cancel.is_set)
+                time_limit_seconds=request.seconds, should_cancel=cancel.is_set,**({'controller':controller} if controller else {}))
             measured = validate_fleet_solution(problem, outcome.final_solution.routes)
             execution = {
                 'status': 'failed' if outcome.errors or outcome.status == 'failed' else
@@ -101,6 +111,8 @@ def execute(job_id, request, resolved):
                 'work_by_category': dict(outcome.work_by_category), 'errors': list(outcome.errors),
                 'strategy_job_id': request.strategy_job_id, 'strategy_id': request.strategy_id,
                 'strategy_fingerprint': fingerprint,
+                'controller':outcome.controller,
+                'operator_telemetry':dict(outcome.operator_telemetry),
                 'constructors': [{'method': c.method, 'status': c.status,
                     'distance': c.plan.total_distance if c.plan else None} for c in outcome.construction_candidates],
                 'raw_events': [{'stage': e.stage, 'method': e.method, 'status': e.status,
@@ -137,16 +149,31 @@ def execute(job_id, request, resolved):
                     storage.routing_results[(request.instance_id, request.method)] = response
                 update(status=execution['status'], stage='finished', termination=outcome.termination_reason,
                        result=response.model_dump(mode='json'), execution=execution)
+    except ControllerUnavailable:
+        update(status='cancelled' if cancel.is_set() else 'failed',stage='finished',
+               termination='cancelled' if cancel.is_set() else 'controller_unavailable',
+               error=None if cancel.is_set() else 'AI strategy selection failed or exceeded its budget. Previous routes remain available; no random search was substituted.')
     except Exception as exc:
         logging.getLogger(__name__).warning('application_optimization_failed', extra={'job_id': job_id, 'error_type': type(exc).__name__})
         update(status='cancelled' if cancel.is_set() else 'failed', stage='finished',
                termination='cancelled' if cancel.is_set() else 'request_failure',
                error=None if cancel.is_set() else 'Optimization unavailable. Retry with the same plan or a smaller budget.')
+    finally:
+        if controller is not None: controller.close()
 
 
 @router.post('/jobs', status_code=202)
 def start(request: OptimizeRequest, tasks: BackgroundTasks):
     resolved = resolve(request)
+    if request.adaptive is not None:
+        check=strategies.check_provider(request.adaptive.provider)
+        if not check.get('available'):
+            raise HTTPException(503,check['message'])
+        from engine.strategies.experience import development_experience
+        try:
+            development_experience([strategies.snapshot(i) for i in request.adaptive.experience_job_ids],resolved[1])
+        except (ValueError,KeyError,TypeError):
+            raise HTTPException(422,'Selected experience is not verified terminal development evidence') from None
     with lock:
         if len(jobs) >= MAX_JOBS or sum(j['state']['status'] in ('pending', 'running', 'cancelling') for j in jobs.values()) >= MAX_ACTIVE:
             raise HTTPException(429, 'Optimization capacity reached; finish active jobs or restart the local server to clear retained jobs')

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, '../runs/strategy-experiments-refinement/workflow-browser');
+const output = path.resolve(root, '../runs/phase6-verification/workflow-browser');
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
@@ -36,6 +36,7 @@ function apiResponse(url, request) {
     const instance = { ...body, instance_id, depot: body.mode === 'road' ? { lon: body.depot_coords[0], lat: body.depot_coords[1] } : { x: 50, y: 50 },
       drivers: Array.from({ length: body.num_drivers }, (_, i) => ({ driver_id: i, name: `Driver ${i + 1}`, color: ['#2563eb', '#b86039', '#25826e'][i % 3], assigned_stops: [] })),
       stops: Array.from({ length: body.num_stops }, (_, i) => ({ stop_id: i + 1, x: body.stop_coords?.[i][0] ?? 50 + 40 * Math.cos(i), y: body.stop_coords?.[i][1] ?? 50 + 40 * Math.sin(i) })) };
+    Object.assign(instance,{problem_fingerprint:`problem-${instance_id}`,matrix_fingerprint:`matrix-${instance_id}`,distance_units:body.mode==='road'?'meters':'map_units'});
     instances.set(instance_id, instance); return [200, instance];
   }
   if (pathname === '/api/routing/solve') {
@@ -46,6 +47,7 @@ function apiResponse(url, request) {
     const distance = { nearest_neighbor: 100, '2opt': 80, evolved: 80 }[body.method];
     const result = { instance_id: body.instance_id, method: body.method, total_distance: distance, longest_route_distance: distance / instance.num_drivers, computation_time: .1,
       drivers: instance.drivers.map(driver => ({ driver_id: driver.driver_id, route: [0, ...instance.stops.filter((_, i) => i % instance.num_drivers === driver.driver_id).map(s => s.stop_id), 0], distance: distance / instance.num_drivers, geometry: null, geometry_error: instance.mode === 'road' ? 'Offline geometry fixture' : null })) };
+    Object.assign(result,{feasible:true,problem_fingerprint:instance.problem_fingerprint,matrix_fingerprint:instance.matrix_fingerprint,distance_units:instance.distance_units,execution:{status:'completed',termination:'baseline_complete',operations:null,budget_exhausted:false}});
     if (body.method === 'evolved') Object.assign(result, { run_id: body.run_id, optimization: { nearest_neighbor_distance: 100, two_opt_distance: 80, best_baseline_distance: 80, raw_evolved_distance: 90, refined_evolved_distance: null, selected_source: '2opt', baseline_retained: true, improvement_percent: 0, errors: {} } });
     if (!body.preview) routes.set(body.instance_id + ':' + body.method, result); return [200, result];
   }
@@ -71,13 +73,13 @@ function apiResponse(url, request) {
     const original=routes.get(body.instance_id+':2opt');assert.ok(original);
     const result={...original,method:'strategy',feasible:true};
     routes.set(body.instance_id+':strategy',result);
-    const job={job_id,instance_id:body.instance_id,method:'strategy',status:'completed',result};
+    const job={job_id,instance_id:body.instance_id,problem_fingerprint:original.problem_fingerprint,matrix_fingerprint:original.matrix_fingerprint,method:'strategy',status:'completed',result};
     optimizationJobs.set(job_id,job);return [200,job];
   }
   if(pathname.startsWith('/api/optimization/jobs/'))return [200,optimizationJobs.get(pathname.split('/')[4])];
   if (pathname.endsWith('/comparison')) {
     const id = pathname.split('/')[3], instance = instances.get(id);
-    return [200, { instance_id: id, num_stops: instance.num_stops, num_drivers: instance.num_drivers, comparisons: [...routes.values()].filter(r => r.instance_id === id) }];
+    return [200, { instance_id: id, problem_fingerprint:instance.problem_fingerprint,matrix_fingerprint:instance.matrix_fingerprint,num_stops: instance.num_stops, num_drivers: instance.num_drivers, comparisons: [...routes.values()].filter(r => r.instance_id === id) }];
   }
   if (pathname === '/api/evolution/runs') {
     const run_id = `run-${++runNumber}`;
@@ -168,26 +170,34 @@ try {
   await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`document.querySelector('h1')?.textContent.includes('clearer path')`);
   assert.equal(await evaluate(`!!document.querySelector('input')`), false);
   await screenshot('01-home-desktop'); check('Home offers one clear starting action without configuration');
-  await click('Create route plan'); await waitFor(`!!document.querySelector('.stepper')`); await click('Continue');
-  await fill(labelInput('Delivery stops'), 7); await click('Reproducibility options', 'summary'); await fillLabel('Random seed', 0); await click('Continue'); await fillLabel('Number of drivers', 3);
+  await click('Create route plan'); await waitFor(`!!document.querySelector('.planning-workspace')`);
+  await fill(labelInput('Delivery stops'), 7); await click('Reproducibility options', 'summary'); await fillLabel('Random seed', 0);  await fillLabel('Number of drivers', 3);
   await click('Home', 'nav a'); await click('Route Plan', 'nav a');
-  assert.equal(await evaluate(`document.querySelector('input[type=number]').value`), '3');
-  await click('Back'); assert.equal(await evaluate(`document.querySelector('input[aria-label="Delivery stops"]').value`), '7'); await click('Continue');
-  await fillLabel('Number of drivers', 0); await click('Continue'); await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('1–20')`);
-  await fillLabel('Number of drivers', 3); await click('Continue');
-  await screenshot('02-setup-review'); check('Wizard preserves inputs across steps/navigation and validates drivers');
-  await click('Generate routes'); await waitFor(`document.querySelector('h1')?.textContent.includes('ready to explore')`);
+  assert.equal(await evaluate(`[...document.querySelectorAll('label')].find(l=>l.firstChild?.textContent.trim()==='Number of drivers').querySelector('input').value`), '3');
+  await click('Home','nav a');await click('Route Plan','nav a'); assert.equal(await evaluate(`document.querySelector('input[aria-label="Delivery stops"]').value`), '7');
+  await fillLabel('Number of drivers', 0); await click('Generate Plan');  await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('1–20')`);
+  await fillLabel('Number of drivers', 3);
+  await screenshot('02-setup-review'); check('Workspace preserves inputs across navigation and validates drivers');
+  await click('Generate Plan'); await waitFor(`!!document.querySelector('.route-summary')`);
   assert.deepEqual(requests.filter(r => r.pathname === '/api/instances')[0].body, { mode: 'synthetic', num_stops: 7, num_drivers: 3, layout: 'uniform', seed: 0 });
   assert.equal(requests.filter(r => r.pathname === '/api/routing/solve').length, 2);
   assert.match(await evaluate(`document.querySelector('.route-summary').textContent`), /80.00 map units/); check('Generate routes creates one instance and computes both real API methods');
+  assert.ok(await evaluate(`Math.abs(document.querySelector('.workspace-results').getBoundingClientRect().top-document.querySelector('.planning-scroll').getBoundingClientRect().top)<2`));
+  assert.match(await evaluate(`document.querySelector('.route-outcome').textContent`), /Nearest Neighbor \(historical\).*20.00 map units saved.*20.0% shorter/);
+  assert.equal(await evaluate(`document.querySelector('.workspace-advanced').open`),false);
+  await evaluate(`document.querySelector('.route-explanation button').click()`);
+  assert.equal(await evaluate(`document.querySelector('.map-panel button[aria-pressed=true]')?.textContent.trim()`),'Driver 1');
+  check('Measured savings name the baseline and explanation focuses its driver while diagnostics stay collapsed');
+  await screenshot('03a-measured-route-output');
+  await evaluate(`document.querySelector('.driver-select').click()`); // Restore all-driver view before the existing toggle test.
   await evaluate(`document.querySelector('.driver-select').click()`);
   assert.equal(await evaluate(`document.querySelectorAll('.driver-itinerary').length`), 1);
   assert.equal(await evaluate(`document.querySelector('.map-panel button[aria-pressed=true]')?.textContent.trim()`), 'Driver 1');
   await screenshot('03-routes-desktop'); check('Driver selection synchronizes the map and itinerary');
   await click('Compare', 'nav a'); await waitFor(`document.querySelector('.comparison-grid')?.textContent.includes('20.0% shorter')`);
-  assert.equal(await evaluate(`!!document.querySelector('.stepper') || !!document.querySelector('.driver-panel')`), false);
+  assert.equal(await evaluate(`!!document.querySelector('.stepper') || !!document.querySelector('.driver-panel')?.getBoundingClientRect().height`), false);
   await screenshot('04-comparison'); check('Compare is separate and shows only measured same-plan results');
-  await evaluate('history.back()'); await waitFor(`document.querySelector('h1')?.textContent.includes('ready to explore')`);
+  await evaluate('history.back()'); await waitFor(`!!document.querySelector('.route-summary')`);
   await evaluate('history.forward()'); await waitFor(`!!document.querySelector('.comparison-grid')`); check('Browser Back and Forward preserve the selected route plan');
   await click('Strategy Experiments','nav a');
   assert.equal(await evaluate(`document.querySelector('form details').open`),false);
@@ -228,28 +238,28 @@ try {
   await screenshot('06-comparison-mobile');
   assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true); check('Small viewport comparison has no horizontal page overflow');
   assert.equal(await evaluate(`document.querySelector('nav').scrollWidth <= document.querySelector('nav').clientWidth`), true);
-  await click('Route Plan', 'nav a'); await click('Edit plan'); await click('Continue');
+  await click('Route Plan', 'nav a'); await click('Edit Plan');
   assert.equal(await evaluate(`document.querySelector('input[aria-label="Delivery stops"]').value`), '7');
   await screenshot('07-setup-mobile');
-  await click('Continue'); await click('Continue'); partialFailure = true;
-  await click('Generate routes'); await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('Refinement temporarily unavailable')`);
+    partialFailure = true;
+  await click('Generate Plan'); await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('Refinement temporarily unavailable')`);
   assert.match(await evaluate(`document.querySelector('.route-summary').textContent`), /100.00 map units/);
   partialFailure = false; await click('2-Opt'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80.00 map units')`); check('Partial routing failures retain usable results and retry successfully');
   await click('Strategy Experiments','nav a');await screenshot('09-strategy-experiments-mobile');await click('Apply strategy to current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
   assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body.instance_id,'plan-2'); check('Same winner recomputes against a different selected instance');
   assert.equal(blocked.length, 0); check('Synthetic workflow loads no external browser resources');
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-  await click('Edit plan'); await evaluate(`document.querySelectorAll('input[name="route-mode"]')[1].click()`); await click('Continue');
+  await click('Edit Plan'); await evaluate(`document.querySelectorAll('input[name="route-mode"]')[1].click()`);
   await fill(labelInput('Delivery stops'), 5); await fillLabel('Depot longitude', 13.4); await fillLabel('Depot latitude', 52.5); await fillLabel('How to add stops', 'manual');
   for (let i = 0; i < 5; i++) { await click('Add stop'); await fill(`#lon-${i}`, 13.41 + i / 1000); await fill(`#lat-${i}`, 52.51 + i / 1000); }
   await fillLabel('How to add stops', 'map'); await waitFor(`document.querySelectorAll('.leaflet-marker-icon').length === 6`);
-  await click('Continue'); await click('Back'); assert.equal(await evaluate(`document.querySelectorAll('.leaflet-marker-icon').length`), 6); check('Road map/manual coordinates and markers persist between wizard steps');
+   await click('Home','nav a');await click('Route Plan','nav a'); assert.equal(await evaluate(`document.querySelectorAll('.leaflet-marker-icon').length`), 6); check('Road map/manual coordinates and markers persist across navigation');
   await screenshot('08-road-setup-offline');
-  await click('Continue'); await click('Continue'); roadFailure = true; await click('Generate routes');
+    roadFailure = true; await click('Generate Plan');
   await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('Road routing service unavailable')`);
-  assert.equal(await evaluate(`!!document.querySelector('.wizard-panel')`), true);
+  assert.equal(await evaluate(`!!document.querySelector('.planning-column')`), true);
   assert.equal(instances.size, 2); check('Road failure stays explicit and preserves the draft without synthetic fallback');
-  roadFailure = false; await click('Generate routes'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80 m')`);
+  roadFailure = false; await click('Generate Plan'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80 m')`);
   await waitFor(`document.body.textContent.includes('Road geometry unavailable')`); check('Road result uses road units and discloses missing geometry');
   assert.deepEqual(errors, []);
   check('No browser runtime exceptions');

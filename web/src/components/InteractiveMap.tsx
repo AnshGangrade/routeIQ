@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Pane, Polyline, Popup } from 'react-leaflet';
 import L from 'leaflet';
-import { atlasDepotIcon as depotIcon, atlasStopIcon as createStopIcon, MapUtilities, tileURL } from './MapDesign';
-import { driverColor } from '../services/presentation';
+import { atlasDepotIcon as depotIcon, atlasStopIcon as createStopIcon, MapUtilities, SelectedLocation, tileURL } from './MapDesign';
+import { driverColor, mapRouteStyle } from '../services/presentation';
 import 'leaflet/dist/leaflet.css';
 import type { InstanceResponse, RoutingResultResponse } from '../types/api';
 
 interface InteractiveMapProps {
+  selectedStopId?: number | null;
+  onStopSelect?: (id: number) => void;
   instance: InstanceResponse | null;
   routingResult: RoutingResultResponse | null;
   selectedDriverId: number | null;
@@ -20,6 +22,8 @@ export function InteractiveMap({
   selectedDriverId,
   onDriverSelect,
   configVisible,
+  selectedStopId = null,
+  onStopSelect,
 }: InteractiveMapProps) {
   const mapRef = useRef<L.Map | null>(null);
   const [tileError, setTileError] = useState(false);
@@ -83,7 +87,7 @@ export function InteractiveMap({
         >
           <Popup>
             <div className="text-sm">
-              <strong className="text-red-600">Depot</strong>
+              <strong className="text-[#151515]">Depot</strong>
               <br />
               Lat: {depotLat.toFixed(6)}
               <br />
@@ -105,18 +109,18 @@ export function InteractiveMap({
             )
           );
           
-          const color = driver ? driverColor(driver.driver_id) : '#64748b';
+          const color = driver ? driverColor(driver.driver_id) : '#686868';
           const isSelected = driver && (selectedDriverId === null || selectedDriverId === driver.driver_id);
           
           return (
             <Marker
               key={stop.stop_id}
               position={[stopLat, stopLon]}
-              icon={createStopIcon(stop.stop_id, color, !!isSelected)}
+              icon={createStopIcon(stop.stop_id, color, !!isSelected, selectedStopId === stop.stop_id)}
               title={`Delivery stop ${stop.stop_id}`}
               alt={`Delivery stop ${stop.stop_id}`}
               eventHandlers={{
-                click: () => driver && onDriverSelect(driver.driver_id),
+                click: () => { if (driver) onDriverSelect(driver.driver_id); onStopSelect?.(stop.stop_id); },
               }}
             >
               <Popup>
@@ -141,12 +145,18 @@ export function InteractiveMap({
         })}
 
         {/* Route Polylines - use OSRM geometry if available */}
+        <Pane name="route-casings" style={{zIndex:410,pointerEvents:'none'}}>
+          {routingResult?.drivers.map(driver => {
+            const style=mapRouteStyle(routingResult.method,selectedDriverId===null || selectedDriverId===driver.driver_id);
+            if(!style.casing || !driver.geometry || driver.geometry.length<2 || driver.geometry_error)return null;
+            return <Polyline key={driver.driver_id} positions={driver.geometry.map(coord=>[coord[0],coord[1]])} pathOptions={{color:'#151515',weight:7,opacity:1,className:'route-casing'}} interactive={false}/>;
+          })}
+        </Pane>
+        <Pane name="route-strokes" style={{zIndex:420}}>
         {routingResult && routingResult.drivers.map(driver => {
           const driverInfo = instance.drivers.find(d => d.driver_id === driver.driver_id);
-          const color = driverColor(driver.driver_id);
           const isSelected = selectedDriverId === null || selectedDriverId === driver.driver_id;
-          
-          if (!isSelected) return null;
+          const style = mapRouteStyle(routingResult.method,isSelected);
 
           // Missing geometry stays missing: never draw straight-line road routes.
           if (!driver.geometry || driver.geometry.length < 2 || driver.geometry_error) return null;
@@ -156,7 +166,7 @@ export function InteractiveMap({
             ? (driver.distance / 1000).toFixed(2) + ' km'
             : driver.distance.toFixed(0) + ' m';
           
-          const durationMin = driver.duration 
+          const durationMin = driver.duration != null
             ? (driver.duration / 60).toFixed(0) + ' min'
             : null;
           
@@ -166,13 +176,12 @@ export function InteractiveMap({
             <Polyline
               key={driver.driver_id}
               positions={positions}
-              color={color}
-              weight={selectedDriverId === driver.driver_id ? 6 : 4}
-              opacity={selectedDriverId === driver.driver_id ? .95 : .78}
+              pathOptions={{color:style.color,weight:style.weight,opacity:style.opacity,dashArray:style.dashArray,className:'route-path'}}
+              eventHandlers={{click:()=>onDriverSelect(driver.driver_id)}}
             >
               <Popup>
                 <div className="text-sm">
-                  <strong style={{ color }}>{driverInfo?.name}</strong>
+                  <strong>{driverInfo?.name}</strong>
                   <br />
                   Distance: {distanceKm}
                   {durationMin && (
@@ -184,7 +193,7 @@ export function InteractiveMap({
                   <br />
                   Stops: {driver.route.filter(id => id !== 0).length}
                   <br />
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-[#686868]">
                     {routingStatus}
                   </span>
                 </div>
@@ -192,6 +201,8 @@ export function InteractiveMap({
             </Polyline>
           );
         })}
+        </Pane>
+        <SelectedLocation point={(() => {const s=instance.stops.find(s=>s.stop_id===selectedStopId);return s ? [s.y,s.x] : null;})()}/>
       </MapContainer>
     </div>
     </div>

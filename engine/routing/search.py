@@ -1,7 +1,8 @@
 """Deterministic portfolio + restart-on-improvement VND + bounded seeded ILS."""
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from .control import WorkSlice, StrategyController
 
 from .budget import SearchBudget, SearchStopped
 from .construction import (
@@ -89,6 +90,8 @@ class HybridResult:
     neighborhoods_truncated: int
     status: str
     errors: tuple[str, ...] = ()
+    operator_telemetry: tuple[tuple[str, dict], ...] = ()
+    controller: dict | None = None
 
 
 def _bootstrap(problem):
@@ -113,6 +116,8 @@ class _Search:
         self.calls = self.accepted = self.truncated = 0
         self.iterations = self.diversifications = 0
         self.reason = None
+        self.operator_stats = {name:{'calls':0,'attempts':0,'accepted_improvements':0,
+            'rejected_moves':0,'operations':0,'distance_reduction':0.,'failures':0} for name in OPERATORS}
 
     def record(self, stage, method, proposal, accepted, status="completed"):
         # Recompute independently even if an operator supplied plausible metrics.
@@ -140,12 +145,21 @@ class _Search:
             method = self.config.operators[index]
             self.calls += 1
             self.executed.append(method)
+            stats=self.operator_stats[method]
+            stats['calls']+=1
+            before_work=self.budget.used-1  # Include the charged operator invocation.
             try:
                 kwargs = ({"max_iterations": self.config.two_opt_iterations} if method == "two_opt"
                           else {"max_moves": self.config.max_moves_per_operator})
                 raw = OPERATORS[method](self.problem, current.routes, budget=self.budget, **kwargs)
                 verified = checked_plan(self.problem, raw.routes, raw.method, raw.work)
                 accepted = verified.total_distance < current.total_distance
+                accepts=raw.work.candidate_acceptances if raw.work.candidate_acceptances is not None else raw.work.accepted_moves
+                stats['attempts']+=raw.work.candidates_evaluated
+                stats['accepted_improvements']+=accepts
+                stats['rejected_moves']+=max(0,raw.work.candidates_evaluated-accepts)
+                # Credit only a new global best, not recovering a diversification loss.
+                stats['distance_reduction']+=max(0.,self.best.total_distance-verified.total_distance)
                 self.record("vnd", method, verified, accepted,
                             "interrupted" if self.budget.reason else "truncated" if raw.work.truncated else "completed")
                 self.truncated += int(raw.work.truncated and self.budget.reason is None)
@@ -156,12 +170,67 @@ class _Search:
                 else:
                     index += 1
             except Exception as exc:
+                stats['failures']+=1
                 self.reason = "operator_error"
                 self.errors.append(f"{method}: {type(exc).__name__}")
                 self.events.append(SearchEvent("vnd", method, None, False,
                     self.best.total_distance, self.budget.used, "failed"))
                 break
+            finally:
+                stats['operations']+=self.budget.used-before_work
         return current
+
+    def adaptive(self, controller, allocation):
+        """Checkpointed scheduling of the same VND/perturbation primitives.
+
+        Unlike the static portfolio walk, adaptive scheduling starts at the best
+        constructor and uses explicit work slices. It never resets the budget.
+        """
+        parent=self.budget
+        current=self.best
+        previous=self.best.total_distance
+        for checkpoint in range(controller.max_checkpoints+1):
+            if self.reason or not parent.check(): break
+            self.budget=WorkSlice(parent,allocation) if checkpoint<controller.max_checkpoints else parent
+            try: current=self.vnd(current)
+            finally: self.budget=parent
+            if self.reason or not parent.check() or checkpoint==controller.max_checkpoints: break
+            stats={k:{**v,'improvement_per_operation':v['distance_reduction']/v['operations'] if v['operations'] else None}
+                   for k,v in self.operator_stats.items()}
+            delta=previous-self.best.total_distance
+            telemetry={'checkpoint':checkpoint+1,'best_distance':self.best.total_distance,
+                'improvement_since_checkpoint':delta,'stagnated':delta==0,
+                'operations':parent.used,'operator_calls':self.calls,'elapsed_seconds':parent.elapsed,
+                'remaining_operations':parent.limit-parent.used,'remaining_seconds':max(0.,parent.deadline-parent.clock()),
+                'operator_statistics':stats,'operator_order':list(self.config.operators),
+                'diversifications_remaining':max(0,min(self.config.ils_iterations,self.config.max_diversifications)-self.diversifications),
+                'counter_definition':'attempts are scanned candidates; rejections include candidates not retained by best-scan operators; two_opt counts actual reversal decisions'}
+            action=controller.checkpoint(telemetry,parent)
+            previous=self.best.total_distance
+            if not parent.check(): break
+            # Validate again at the optimizer boundary; controllers cannot raise host caps.
+            if action.action not in ('continue','reorder','diversify','stop'):
+                raise ValueError('Unsupported controller action')
+            if type(action.operation_slice) is not int or not 100<=action.operation_slice<=20000:
+                raise ValueError('Invalid checkpoint allocation')
+            applied={'action':action.action,'status':'applied','remaining_operations':parent.limit-parent.used}
+            if action.action=='stop':
+                if hasattr(controller,'applied'): controller.applied(applied)
+                self.reason='controller_stop'; break
+            if action.action=='reorder': self.config=replace(self.config,operators=action.operators)
+            if action.max_moves is not None: self.config=replace(self.config,max_moves_per_operator=action.max_moves)
+            allocation=action.operation_slice
+            current=self.best
+            if action.action=='diversify' and telemetry['diversifications_remaining']>0 and telemetry['stagnated']:
+                proposal=self.perturb(current)
+                if proposal is not None:
+                    self.diversifications+=1
+                    self.iterations+=1
+                    current=proposal
+                else: applied.update(status='not_applied',reason='no_valid_perturbation')
+            elif action.action=='diversify':
+                applied.update(status='not_applied',reason='no_stagnation_or_diversification_allowance')
+            if hasattr(controller,'applied'): controller.applied(applied)
 
     def perturb(self, current):
         positions = [(driver, position) for driver, route in enumerate(current.routes)
@@ -215,9 +284,9 @@ class _Search:
             self.reason = "ils_iteration_limit"
 
 
-def solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
+def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
                  search_seed=None, operation_budget=100_000, time_limit_seconds=10.0,
-                 should_cancel=None, clock=time.monotonic):
+                 should_cancel=None, clock=time.monotonic, controller=None):
     """Return a validated incumbent plus honest raw results and termination metadata.
 
     Search work is bounded by candidate evaluations and call/iteration caps.
@@ -235,6 +304,14 @@ def solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
     budget = SearchBudget(operation_budget, time_limit_seconds, should_cancel, clock=clock)
     seeded_problem = type(problem).model_validate({**problem.model_dump(), "search_seed": seed})
     search = _Search(seeded_problem, config, budget, seed)
+    if controller is not None:
+        if not 0<=controller.max_checkpoints<=8: raise ValueError('Invalid checkpoint cap')
+        choice=controller.initialize(seeded_problem,budget,seed)
+        config=SearchConfig(**choice.config.__dict__)
+        if choice.construction not in ('portfolio',*CONSTRUCTORS): raise ValueError('Unknown controller construction')
+        if type(choice.operation_slice) is not int or not 100<=choice.operation_slice<=20000: raise ValueError('Invalid initial allocation')
+        construction_strategy=choice.construction
+        search.config=config
     candidates = [CandidateReport("ordered_feasible_seed", "completed", search.best)]
     methods = CONSTRUCTORS if construction_strategy == "portfolio" else tuple(dict.fromkeys(
         ("legacy_nn", "legacy_2opt", construction_strategy)))
@@ -272,16 +349,19 @@ def solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
             search.errors.append(f"{method}: {type(exc).__name__}")
     initial = search.best
     # Improve each distinct constructed plan, shortest first, retaining all global gains.
-    seen = set()
-    for candidate in sorted((c.plan for c in candidates if c.plan), key=lambda p: p.total_distance):
-        if candidate.routes in seen:
-            continue
-        seen.add(candidate.routes)
-        if search.reason or not budget.check():
-            break
-        search.vnd(candidate)
-    if not search.reason and budget.check():
-        search.ils()
+    if controller is not None:
+        search.adaptive(controller,choice.operation_slice)
+    else:
+        seen = set()
+        for candidate in sorted((c.plan for c in candidates if c.plan), key=lambda p: p.total_distance):
+            if candidate.routes in seen:
+                continue
+            seen.add(candidate.routes)
+            if search.reason or not budget.check():
+                break
+            search.vnd(candidate)
+        if not search.reason and budget.check():
+            search.ils()
     reason = budget.reason or search.reason or ("neighborhood_limit" if search.truncated else "local_search_complete")
     if search.errors and reason == "local_search_complete":
         reason = "completed_with_errors"
@@ -290,7 +370,25 @@ def solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
     exhausted = reason in {"operation_budget", "deadline", "operator_call_limit", "ils_iteration_limit", "neighborhood_limit"} or bool(search.truncated)
     status = ("failed" if reason in {"operator_error", "cancellation_error"} else
               "completed" if reason in {"local_search_complete", "no_perturbation_available"} else "stopped")
+    evidence=controller.snapshot() if controller is not None else None
+    if evidence is not None:
+        evidence.update(termination=reason,final_distance=final.total_distance,operations_used=budget.used,
+                        final_routes_fingerprint=problem._digest(final.routes))
     return HybridResult(initial, final, improvement, tuple(candidates), tuple(search.events), seed,
         tuple(search.executed), search.accepted, search.calls, search.iterations, search.diversifications,
         budget.used, budget.limit, tuple(sorted(budget.counts.items())), budget.elapsed, reason,
-        exhausted, search.truncated, status, tuple(search.errors))
+        exhausted, search.truncated, status, tuple(search.errors),tuple(search.operator_stats.items()),
+        evidence)
+
+
+def solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
+                 search_seed=None, operation_budget=100_000, time_limit_seconds=10.0,
+                 should_cancel=None, clock=time.monotonic, controller: StrategyController | None=None):
+    try:
+        result=_solve_hybrid(problem,construction_strategy=construction_strategy,config=config,search_seed=search_seed,
+            operation_budget=operation_budget,time_limit_seconds=time_limit_seconds,should_cancel=should_cancel,
+            clock=clock,controller=controller)
+        if controller is not None and hasattr(controller,'verify_result'): controller.verify_result(result)
+        return result
+    finally:
+        if controller is not None: controller.close()

@@ -192,6 +192,11 @@ def improve_two_opt(problem, routes, *, max_iterations=1, budget=None):
     bounded_integer(max_iterations, "max_iterations", MAX_TWO_OPT_ITERATIONS)
     initial = checked_plan(problem, routes, "two_opt", WorkCounters())
     current, calls, accepted = initial, 0, 0
+    evaluated = reversals = 0
+    def observe(improving):
+        nonlocal evaluated, reversals
+        evaluated += 1
+        reversals += int(improving)
     indices = {node: i for i, node in enumerate(problem.node_ids)}
     matrix = problem.matrix_array()
     for driver, route in enumerate(initial.routes):
@@ -199,6 +204,7 @@ def improve_two_opt(problem, routes, *, max_iterations=1, budget=None):
             continue
         improved = baseline_two_opt([indices[node] for node in route], matrix,
                                      max_iterations=max_iterations,
+                                     on_evaluation=observe,
                                      should_continue=(lambda: budget.consume("two_opt")) if budget is not None else None)
         calls += 1
         proposal = list(current.routes)
@@ -209,6 +215,7 @@ def improve_two_opt(problem, routes, *, max_iterations=1, budget=None):
             accepted += 1
         if budget is not None and budget.reason is not None:
             break
-    return replace(current, work=WorkCounters(full_validations=1+calls,
+    return replace(current, work=WorkCounters(full_validations=1+calls,candidates_evaluated=evaluated,
+                   candidate_acceptances=reversals,
                    baseline_calls=calls, accepted_moves=accepted,
                    truncated=budget is not None and budget.reason is not None))

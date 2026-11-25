@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { parseCoordinatePair } from '../services/inputs';
 import 'leaflet/dist/leaflet.css';
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap, Popup } from 'react-leaflet';
-import { atlasDepotIcon as depotIcon, atlasStopIcon as stopIcon, MapUtilities, tileURL } from './MapDesign';
+import { atlasDepotIcon as depotIcon, atlasStopIcon as stopIcon, MapUtilities, SelectedLocation, tileURL } from './MapDesign';
 import { Icon } from './Design';
 
 interface LocationPickerProps {
+  selectedStop?: number | null;
+  onStopSelect?: (index: number) => void;
   readOnly?: boolean;
   depotLat: string;
   depotLon: string;
@@ -50,6 +52,8 @@ export function LocationPicker({
   onDepotClear,
   onStopsClear,
   readOnly = false,
+  selectedStop = null,
+  onStopSelect,
 }: LocationPickerProps) {
   const [clickMode, setClickMode] = useState<'depot' | 'stop' | 'none'>('none');
   const [tileError, setTileError] = useState(false);
@@ -72,8 +76,8 @@ export function LocationPicker({
           onClick={() => setClickMode(clickMode === 'depot' ? 'none' : 'depot')}
           className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
             clickMode === 'depot'
-              ? 'bg-red-600 text-white border-red-600'
-              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              ? 'bg-[#F3C63B] text-[#151515] border-[#151515]'
+              : 'bg-white text-[#151515] border-[#DFDED7] hover:bg-[#F7F6F1]'
           }`}
         >
           {clickMode === 'depot' ? 'Click map for depot' : 'Set Depot'}
@@ -85,8 +89,8 @@ export function LocationPicker({
           onClick={() => setClickMode(clickMode === 'stop' ? 'none' : 'stop')}
           className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
             clickMode === 'stop'
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              ? 'bg-[#F3C63B] text-[#151515] border-[#151515]'
+              : 'bg-white text-[#151515] border-[#DFDED7] hover:bg-[#F7F6F1]'
           }`}
         >
           {clickMode === 'stop' ? 'Click map for stops' : 'Add Stops'}
@@ -95,7 +99,7 @@ export function LocationPicker({
           <button
             type="button"
             onClick={() => setClickMode('none')}
-            className="px-3 py-2 text-sm rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+            className="px-3 py-2 text-sm rounded-md border border-[#DFDED7] bg-white text-[#151515] hover:bg-[#F7F6F1]"
           >
             Cancel
           </button>
@@ -104,7 +108,7 @@ export function LocationPicker({
 
       {/* Instruction text */}
       {!readOnly && clickMode !== 'none' && (
-        <div className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
+        <div className="text-xs text-[#151515] bg-[#F7F6F1] border border-[#DFDED7] rounded p-2">
           {clickMode === 'depot' 
             ? '👆 Click anywhere on the map to set the depot location'
             : '👆 Click anywhere on the map to add a delivery stop'
@@ -125,7 +129,7 @@ export function LocationPicker({
             url={tileURL}
           />
           
-          <MapUtilities autoFit={readOnly} points={[...(depot ? [[depot[1],depot[0]] as [number,number]] : []), ...stops.map(s => parseCoordinatePair(s.lon,s.lat)).filter((p): p is [number,number] => !!p).map(([lon,lat]) => [lat,lon] as [number,number])]}/>{!readOnly && <Recenter lat={centerLat} lon={centerLon} selected={hasValidDepot} />}
+          <MapUtilities autoFit={true} points={[...(depot ? [[depot[1],depot[0]] as [number,number]] : []), ...stops.map(s => parseCoordinatePair(s.lon,s.lat)).filter((p): p is [number,number] => !!p).map(([lon,lat]) => [lat,lon] as [number,number])]}/>{!readOnly && <Recenter lat={centerLat} lon={centerLon} selected={hasValidDepot} />}
           <MapClickHandler
             mode={readOnly ? 'none' : clickMode}
             onDepotClick={(lat, lon) => {
@@ -136,6 +140,7 @@ export function LocationPicker({
               onStopAdd(lat, lon);
             }}
           />
+          <SelectedLocation point={selectedStop != null && stops[selectedStop] ? (() => { const p=parseCoordinatePair(stops[selectedStop].lon,stops[selectedStop].lat);return p ? [p[1],p[0]] : null; })() : null}/>
 
           {/* Depot marker */}
           {hasValidDepot && (
@@ -155,7 +160,7 @@ export function LocationPicker({
             >
               <Popup>
                 <div className="text-sm">
-                  <strong className="text-red-600">Depot</strong>
+                  <strong className="text-[#151515]">Depot</strong>
                   <br />
                   {readOnly ? 'Selected depot' : 'Drag to reposition'}
                 </div>
@@ -173,11 +178,12 @@ export function LocationPicker({
               <Marker
                 key={idx}
                 position={[lat, lon]}
-                icon={stopIcon(idx + 1)}
+                icon={stopIcon(idx + 1, undefined, true, selectedStop === idx)}
                 title={`Delivery stop ${idx + 1}`}
                 alt={`Delivery stop ${idx + 1}`}
                 draggable={!readOnly}
                 eventHandlers={{
+                  click: () => onStopSelect?.(idx),
                   dragend: (e) => {
                     const marker = e.target;
                     const position = marker.getLatLng();
@@ -196,7 +202,7 @@ export function LocationPicker({
                     {!readOnly && <button
                       type="button"
                       onClick={() => onStopRemove(idx)}
-                      className="mt-2 text-xs text-red-600 hover:text-red-800 underline"
+                      className="mt-2 text-xs text-[#151515] hover:underline underline"
                     >
                       Remove
                     </button>}
@@ -209,14 +215,14 @@ export function LocationPicker({
       </div>
 
       {/* Summary */}
-      <div className="text-sm text-slate-600 space-y-1">
+      <div className="text-sm text-[#686868] space-y-1">
         <div className="flex items-center justify-between">
           <span>Depot: {hasValidDepot ? 'Set' : 'Not set'}</span>
           {hasValidDepot && !readOnly && onDepotClear && (
             <button
               type="button"
               onClick={onDepotClear}
-              className="text-xs text-red-600 hover:text-red-800"
+              className="text-xs text-[#151515] hover:underline"
             >
               <Icon name="close" size={14}/> Clear
             </button>
@@ -233,7 +239,7 @@ export function LocationPicker({
                   onStopRemove(i);
                 }
               }}
-              className="text-xs text-red-600 hover:text-red-800"
+              className="text-xs text-[#151515] hover:underline"
             >
               Clear All
             </button>

@@ -22,7 +22,7 @@ async def get_comparison(instance_id: str):
     stored = instance_store[instance_id]
     
     # Find all results for this instance
-    methods = ["nearest_neighbor", "2opt", "portfolio", "vnd", "vnd_ils", "strategy", "evolved"]
+    methods = ["nearest_neighbor", "2opt", "portfolio", "vnd", "vnd_ils", "strategy", "adaptive", "evolved"]
     comparisons = []
     nn_distance = None
     

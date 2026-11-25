@@ -3,9 +3,9 @@ import { parseCoordinatePair, parseSeed } from './inputs';
 import type { GenerateInstanceRequest, RoutingResultResponse } from '../types/api';
 
 export type View = 'home' | 'setup' | 'routes' | 'compare' | 'lab';
-export type Method = 'nearest_neighbor' | '2opt' | 'evolved' | 'portfolio' | 'vnd' | 'vnd_ils' | 'strategy';
+export type Method = 'nearest_neighbor' | '2opt' | 'evolved' | 'portfolio' | 'vnd' | 'vnd_ils' | 'strategy' | 'adaptive';
 export const methodNames: Record<Method, string> = { nearest_neighbor: 'Nearest Neighbor', '2opt': '2-Opt', evolved: 'Final selected route',
-  portfolio: 'Constructor portfolio', vnd: 'Hybrid VND', vnd_ils: 'Hybrid VND + ILS', strategy: 'Validated strategy' };
+  portfolio: 'Constructor portfolio', vnd: 'Hybrid VND', vnd_ils: 'Hybrid VND + ILS', strategy: 'Validated strategy', adaptive:'Adaptive LLM search' };
 export interface PlanDraft {
   mode: 'synthetic' | 'road'; numStops: number; numDrivers: number;
   layout: 'uniform' | 'clustered'; seed: string;

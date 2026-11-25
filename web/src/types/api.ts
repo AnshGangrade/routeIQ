@@ -195,6 +195,7 @@ export interface ComparisonResponse {
 }
 
 export interface Execution {
+  controller?: AdaptiveEvidence | null;
   status: string; termination: string; initial_distance?: number; final_distance?: number;
   improvement_percent?: number; initial_definition?: string; operations: number | null;
   operation_limit?: number; search_seed?: number; budget_exhausted: boolean;
@@ -204,12 +205,24 @@ export interface Execution {
   constructors?: Array<{ method: string; status: string; distance: number | null }>;
   raw_events?: Array<{ stage: string; method: string; status: string; raw_distance: number | null; retained_distance: number; accepted: boolean }>;
 }
-export type HybridMethod = 'portfolio' | 'vnd' | 'vnd_ils' | 'strategy';
+export interface AdaptiveEvidence {
+  problem?:{distance_units:string};
+  mode: string; model: string; calls: number; reserved_tokens: number; reported_tokens: number;
+  usage_known: boolean; model_seconds: number;
+  decisions: Array<{stage:string;source:string;accepted:boolean;request:{error?:string|null};
+    proposal?:{rationale?:string;action?:string;config?:Record<string,unknown>}|null;
+    execution?:{status:string;reason?:string};
+    telemetry?:{best_distance:number;improvement_since_checkpoint:number;stagnated:boolean;operations:number;remaining_operations:number;
+      operator_statistics:Record<string,{attempts:number;accepted_improvements:number;rejected_moves:number;operations:number;distance_reduction:number}>}}>
+}
+export type HybridMethod = 'portfolio' | 'vnd' | 'vnd_ils' | 'strategy' | 'adaptive';
 export interface OptimizeRequest {
   instance_id: string; method: HybridMethod; operations: number; seconds: number; search_seed: number;
   strategy_job_id?: string; strategy_id?: string;
+  adaptive?: {provider:StartStrategyRequest['provider'];experience_job_ids:string[]};
 }
 export interface OptimizationJob {
+  controller?: AdaptiveEvidence | null;
   job_id: string; instance_id: string; method: HybridMethod; problem_fingerprint: string; matrix_fingerprint: string;
   status: 'pending' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'incomplete' | 'failed';
   stage: string; termination?: string; error?: string | null; result?: RoutingResultResponse | null;

@@ -38,6 +38,7 @@ def evaluate_one(problem,strategy,config,cancel=lambda:False):
                 'raw_distance':e.raw_candidate.total_distance if e.raw_candidate else None,
                 'retained_best_distance':e.best_distance} for e in r.events],
             selected_distance=r.final_solution.total_distance,
+            operator_telemetry=dict(r.operator_telemetry),
             selection_policy='existing hybrid global incumbent; no external baseline clipping')
     except Exception as exc: row['error_type']=type(exc).__name__
     if problem.fingerprint != before: raise RuntimeError('Problem mutation')

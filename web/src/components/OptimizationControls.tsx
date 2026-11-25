@@ -2,8 +2,9 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { OptimizationJob } from '../types/api';
 import { methodNames, type Method } from '../services/workflow';
 import { activeStatus, statusText } from '../services/product';
+import { ControllerEvidence } from './OptimizationDetails';
 
-export interface Budget { operations: number; seconds: number; search_seed: number; }
+export interface Budget { operations: number; seconds: number; search_seed: number; adaptiveModel?:string; experienceJobs?:string; }
 export const defaultBudget: Budget = { operations: 100000, seconds: 10, search_seed: 0 };
 export function OptimizationControls({ budget, setBudget, busy, job, error, onRun, onCancel }: {
   budget: Budget; setBudget: Dispatch<SetStateAction<Budget>>; busy: boolean; job: OptimizationJob | null;
@@ -16,6 +17,12 @@ export function OptimizationControls({ budget, setBudget, busy, job, error, onRu
       ['vnd', 'Improve routes with several trusted local moves.'],
       ['vnd_ils', 'Explore alternative plans after local improvements, within the same budget.'],
     ] as [Method, string][]).map(([method, description]) => <div key={method}><h3>{methodNames[method]}</h3><p>{description}</p><button className="button secondary" disabled={busy} onClick={() => onRun(method)}>Run {methodNames[method]}</button></div>)}</div>
+    <details><summary>Adaptive LLM search on this plan</summary><p className="small muted">Ollama selects a supported strategy from aggregate plan features, then receives measured feedback at bounded checkpoints. This adapts search decisions; it does not train the model or guarantee an improvement. Provider time shares the solver deadline.</p>
+      <label>Adaptive Ollama model<input disabled={busy} maxLength={128} value={budget.adaptiveModel || 'qwen3:1.7b'} onChange={e=>setBudget(b=>({...b,adaptiveModel:e.target.value}))}/></label>
+      <label>Development experience job IDs (optional, comma separated)<input disabled={busy} value={budget.experienceJobs || ''} onChange={e=>setBudget(b=>({...b,experienceJobs:e.target.value}))}/></label>
+      <p className="small muted">At most 4 model requests, 15 seconds of provider time, and 40,000 reserved context/output tokens. Selected experience must be terminal development evidence; validation and held-out records are rejected. If Ollama is unavailable, this search cannot start.</p>
+      <button className="button secondary" disabled={busy || budget.operations===0 || budget.seconds===0} onClick={()=>onRun('adaptive')}>Run Adaptive LLM search</button>
+    </details>
     <details><summary>Search budget and reproducibility</summary><p className="small muted">Limits bound computation; reaching a limit is reported as incomplete. Cancellation is cooperative. Road geometry requests may take up to their network timeout to stop.</p><div className="form-grid">
       <label>Operation limit<input disabled={busy} type="number" min="0" max="500000" value={budget.operations} onChange={e => setBudget(b => ({ ...b, operations: Number(e.target.value) }))} /></label>
       <label>Solver time limit (seconds)<input disabled={busy} type="number" min="0" max="30" value={budget.seconds} onChange={e => setBudget(b => ({ ...b, seconds: Number(e.target.value) }))} /></label>
@@ -23,6 +30,7 @@ export function OptimizationControls({ budget, setBudget, busy, job, error, onRu
     </div></details>
     {activeStatus(job?.status) && <div className="notice busy" role="status"><span className="spinner" aria-hidden="true" />{statusText(job?.stage)} · {job?.status}. Your current routes stay visible.<button className="text-button" onClick={onCancel} disabled={job?.status === 'cancelling'}>Cancel optimization</button></div>}
     {job?.status === 'cancelled' && <p role="status" className="notice">Optimization cancelled. Previously calculated routes were retained.</p>}
+    {job?.controller && <ControllerEvidence evidence={job.controller}/>}
     {error && <p className="notice error" role="alert">{error}</p>}
   </section>;
 }

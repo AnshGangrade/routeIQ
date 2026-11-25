@@ -13,7 +13,7 @@ def two_opt(
     initial_route: List[int],
     distance_matrix: np.ndarray,
     max_iterations: int = 1000,
-    *, should_continue=None
+    *, should_continue=None, on_evaluation=None
 ) -> RouteResult:
     """
     Improve a route using 2-Opt local search.
@@ -125,6 +125,8 @@ def two_opt(
                 proposed_distance = calculate_route_cost(
                     proposed_route, distance_matrix, return_to_depot=False
                 )
+                if on_evaluation is not None:
+                    on_evaluation(proposed_distance < best_distance)
 
                 if proposed_distance < best_distance:
                     route = proposed_route

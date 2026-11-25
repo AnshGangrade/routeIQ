@@ -3,6 +3,8 @@ require('./phase3.cjs');
 require('./product.cjs');
 require('./visual-design.cjs');
 require('./experiments.cjs');
+require('./planning.cjs');
+require('./route-evidence.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const React = require('react');
@@ -69,10 +71,10 @@ test('comparisons describe shorter, longer, equal and undefined outcomes honestl
 });
 
 test('comparison screen labels worse measured results and missing evolved routes', () => {
-  const instance = { instance_id: 'selected', mode: 'road', num_stops: 5, num_drivers: 2 };
-  const comparison = { instance_id: 'selected', comparisons: [
-    { method: 'nearest_neighbor', total_distance: 1000, longest_route_distance: 500, computation_time: .1 },
-    { method: '2opt', total_distance: 1200, longest_route_distance: 600, computation_time: .1 },
+  const instance = { instance_id: 'selected', mode: 'road', num_stops: 5, num_drivers: 2, problem_fingerprint:'p', matrix_fingerprint:'m' };
+  const comparison = { instance_id: 'selected', problem_fingerprint:'p', matrix_fingerprint:'m', comparisons: [
+    { method: 'nearest_neighbor', total_distance: 1000, longest_route_distance: 500, computation_time: .1, feasible:true, problem_fingerprint:'p', matrix_fingerprint:'m' },
+    { method: '2opt', total_distance: 1200, longest_route_distance: 600, computation_time: .1, feasible:true, problem_fingerprint:'p', matrix_fingerprint:'m' },
   ] };
   const html = renderToStaticMarkup(React.createElement(CompareScreen, { instance, comparison, loading: false, busy: false, evolution: null }));
   assert.match(html, /20.0% longer/);

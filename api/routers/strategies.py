@@ -80,6 +80,9 @@ def register(job_id,request,tasks,resume=False):
 
 @router.post('')
 def start(request:StartRequest,tasks:BackgroundTasks):
+    if request.arm=='llm' and request.mode=='ollama':
+        checked=check_provider(request.provider)
+        if not checked.get('available'): raise HTTPException(503,checked['message'])
     return register(uuid.uuid4().hex,request,tasks)
 
 
@@ -159,4 +162,7 @@ def resume(job_id:str,tasks:BackgroundTasks):
                              arm=m['arm'],
                              provider=ProviderConfig.model_validate(m['provider_config'] or {}))
     except (KeyError,ValueError): raise HTTPException(409,'Checkpoint configuration invalid') from None
+    if request.arm=='llm' and request.mode=='ollama':
+        checked=check_provider(request.provider)
+        if not checked.get('available'): raise HTTPException(503,checked['message'])
     return register(job_id,request,tasks,resume=True)

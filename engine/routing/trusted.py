@@ -15,6 +15,7 @@ class WorkCounters:
     baseline_calls: int = 0
     accepted_moves: int = 0
     truncated: bool = False
+    candidate_acceptances: int | None = None
 
 
 @dataclass(frozen=True)

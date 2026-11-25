@@ -31,8 +31,26 @@ from engine.road.models import RoadDistanceResult
 from engine.routing.validation import validate_fleet_solution
 
 ROOT = Path(__file__).resolve().parents[1]
-strategies.check_provider = lambda config: {'status': 'unreachable', 'configured': True, 'reachable': False, 'available': False, 'model': config.model, 'message': 'Local Ollama unavailable (offline smoke fixture). Choose Random baseline.'}
-strategies.ROOT = ROOT / 'runs' / 'strategy-experiments-refinement' / 'smoke-strategies'
+strategies.check_provider = lambda config: {'status': 'available' if config.model=='offline-adaptive-fixture' else 'unreachable', 'configured': True, 'reachable': config.model=='offline-adaptive-fixture', 'available': config.model=='offline-adaptive-fixture', 'model': config.model, 'message': 'Local Ollama unavailable (offline smoke fixture). Choose Random baseline.'}
+strategies.ROOT = ROOT / 'runs' / 'phase6-verification' / 'smoke-strategies'
+
+# Explicitly test-only declarative decisions; the real selected matrix and solver run.
+from engine.strategies.adaptive import AdaptiveController
+from engine.strategies.adaptive_models import InitialSelection, AdaptiveAction
+from engine.strategies.models import StrategyConfig
+class AdaptiveFixture:
+    mode='offline smoke fixture'
+    def request(self,prompt,schema,**kwargs):
+        if schema is InitialSelection:
+            result=InitialSelection(config=StrategyConfig(construction='legacy_2opt',operators=('cross_exchange','two_opt'),ils_iterations=2),operation_slice=100)
+        else:
+            result=AdaptiveAction(action='reorder',operators=('relocate','cross_exchange'),operation_slice=100)
+        return result,{'calls':1,'tokens':0,'seconds':0.,'error':None}
+    def close(self): pass
+def adaptive_fixture(request,**kwargs):
+    assert request.provider.model=='offline-adaptive-fixture'
+    return AdaptiveController(request,provider=AdaptiveFixture(),**kwargs)
+optimization.AdaptiveController=adaptive_fixture
 
 
 def matrix_fixture(coordinates):
@@ -95,7 +113,7 @@ def main():
         assert any(j['state']['status']=='cancelled' for j in optimization.jobs.values())
         strategies_used = [row for row in audited if row['method']=='strategy']
         assert len({row['instance_id'] for row in strategies_used})>=2
-        (ROOT/'runs/strategy-experiments-refinement/smoke-measurements.json').write_text(json.dumps(audited,indent=2),encoding='utf-8')
+        (ROOT/'runs/phase6-verification/smoke-measurements.json').write_text(json.dumps(audited,indent=2),encoding='utf-8')
         print(f'Independent matrix/coverage audit: {len(audited)} route results passed; cancellation and two-instance application verified')
         return 0
     finally:

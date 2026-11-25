@@ -1,10 +1,12 @@
-import { driverColor } from '../services/presentation';
+import { mapRouteStyle } from '../services/presentation';
 import { useMemo, useState } from 'react';
 import { InteractiveMap } from './InteractiveMap';
 import type { InstanceResponse, RoutingResultResponse } from '../types/api';
 import { methodNames, type Method } from '../services/workflow';
 
 interface RouteVisualizationProps {
+  selectedStopId?: number | null;
+  onStopSelect?: (id: number) => void;
   instance: InstanceResponse | null;
   routingResult: RoutingResultResponse | null;
   onMethodSelect: (method: string) => void;
@@ -24,6 +26,8 @@ export function RouteVisualization({
   configVisible,
   selectedDriverId: controlledDriver,
   onDriverSelect,
+  selectedStopId = null,
+  onStopSelect,
 }: RouteVisualizationProps) {
   const [localDriver, setLocalDriver] = useState<number | null>(null);
   const selectedDriverId = controlledDriver === undefined ? localDriver : controlledDriver;
@@ -73,15 +77,15 @@ export function RouteVisualization({
     return (
       <div className="card-elevated content-padding">
         <h2 className="editorial-heading mb-6">Route Visualization</h2>
-        <div className="flex flex-col items-center justify-center min-h-[500px] bg-[#fafaf9] rounded-lg border-2 border-dashed border-[#eceae4]">
+        <div className="flex flex-col items-center justify-center min-h-[500px] bg-[#F7F6F1] rounded-lg border-2 border-dashed border-[#DFDED7]">
           <div className="text-center space-y-4 max-w-md px-6">
-            <p className="text-lg font-semibold text-[#5f5f5d]">No instance generated</p>
-            <p className="text-sm text-[#5f5f5d] leading-relaxed">
+            <p className="text-lg font-semibold text-[#686868]">No instance generated</p>
+            <p className="text-sm text-[#686868] leading-relaxed">
               Use the configuration panel to generate an instance. Choose synthetic coordinates
               or real road network mode, specify stops and drivers, then generate.
             </p>
             <div className="pt-4">
-              <p className="mono-label text-[10px] text-[#5f5f5d]">
+              <p className="mono-label text-[10px] text-[#686868]">
                 Configure → Generate → Solve → Visualize
               </p>
             </div>
@@ -99,7 +103,7 @@ export function RouteVisualization({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2>Your route map</h2>
-          <p className="text-sm text-[#5f5f5d] mt-1">
+          <p className="text-sm text-[#686868] mt-1">
             {isRoadMode ? (
               <>Real road network · OSRM routing</>
             ) : (
@@ -113,7 +117,7 @@ export function RouteVisualization({
             aria-label="Displayed route method"
             value={selectedMethod}
             onChange={(e) => onMethodSelect(e.target.value)}
-            className="px-3 py-2 text-sm border border-[#eceae4] rounded-md focus:ring-2 focus:ring-[#0d9488] focus:border-transparent bg-white"
+            className="px-3 py-2 text-sm border border-[#DFDED7] rounded-md focus:ring-2 focus:ring-[#151515] focus:border-transparent bg-white"
           >
             {availableMethods.map(method => (
               <option key={method} value={method}>
@@ -133,13 +137,15 @@ export function RouteVisualization({
           selectedDriverId={selectedDriverId}
           onDriverSelect={setSelectedDriverId}
           configVisible={configVisible}
+          selectedStopId={selectedStopId}
+          onStopSelect={onStopSelect}
         />
       ) : (
         /* SVG Coordinate Plot for Synthetic Mode */
-        <div className="bg-[#fafaf9] rounded-lg p-4 border border-[#eceae4]">
+        <div className="bg-[#F7F6F1] rounded-lg p-4 border border-[#DFDED7]">
           {!routingResult && (
-            <div className="mb-3 p-3 bg-[#fffbeb] border border-[#fbbf24]/30 rounded-md">
-              <p className="text-xs text-[#92400e] font-medium">
+            <div className="mb-3 p-3 bg-[#F7F6F1] border border-[#F3C63B]/30 rounded-md">
+              <p className="text-xs text-[#151515] font-medium">
                 Routes not yet calculated. Run a routing algorithm to see optimized paths.
               </p>
             </div>
@@ -149,26 +155,24 @@ export function RouteVisualization({
             role="img"
             aria-label="Synthetic route map showing the depot, numbered delivery stops, and driver routes"
             viewBox="0 0 800 600"
-            className="w-full h-auto bg-white rounded border border-[#eceae4]"
+            className="w-full h-auto bg-white rounded border border-[#DFDED7]"
             style={{ maxHeight: '600px' }}
           >
             {/* Background grid */}
             <defs>
               <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#eceae4" strokeWidth="0.5" />
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#DFDED7" strokeWidth="0.5" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#smallGrid)" />
 
             {/* Routes (if solved) */}
             {routingResult && routingResult.drivers.map(driver => {
-              const color = driverColor(driver.driver_id);
               const isSelected = selectedDriverId === null || selectedDriverId === driver.driver_id;
-
-              if (!isSelected) return null;
+              const style = mapRouteStyle(routingResult.method,isSelected);
 
               return (
-                <g key={driver.driver_id} opacity="0.8">
+                <g key={driver.driver_id}>
                   {/* Draw route segments */}
                   {driver.route.map((stopId, idx) => {
                     if (idx === driver.route.length - 1) return null; // Skip last point (no segment after it)
@@ -188,17 +192,20 @@ export function RouteVisualization({
                     const [x2, y2] = toSVG(nextPoint.x ?? 0, nextPoint.y ?? 0);
 
                     return (
+                      <g key={`${stopId}-${nextStopId}`}>
+                      {style.casing && <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#151515" strokeWidth="7" strokeLinecap="round"/>}
                       <line
-                        key={`${stopId}-${nextStopId}`}
                         x1={x1}
                         y1={y1}
                         x2={x2}
                         y2={y2}
-                        stroke={color}
-                        strokeWidth="3"
+                        stroke={style.color}
+                        strokeWidth={style.weight}
+                        strokeDasharray={style.dashArray}
                         strokeLinecap="round"
-                        opacity="0.7"
+                        opacity={style.opacity}
                       />
+                      </g>
                     );
                   })}
                 </g>
@@ -218,11 +225,12 @@ export function RouteVisualization({
                     y={dy - 10}
                     width="20"
                     height="20"
-                    fill="#B95E42"
-                    stroke="#8d432d"
+                    fill="#151515"
+                    stroke="#151515"
                     strokeWidth="2"
                     rx="2"
                   />
+                  <circle cx={dx} cy={dy} r="5" fill="#F3C63B"/>
                   <text
                     x={dx}
                     y={dy - 16}
@@ -230,7 +238,7 @@ export function RouteVisualization({
                     fontSize="11"
                     fontWeight="bold"
                     fontFamily="IBM Plex Mono"
-                    fill="#B95E42"
+                    fill="#151515"
                   >
                     DEPOT
                   </text>
@@ -242,30 +250,19 @@ export function RouteVisualization({
             {instance.stops.map(stop => {
               const [sx, sy] = toSVG(stop.x, stop.y);
 
-              // Find which driver is assigned to this stop
-              let assignedColor = '#94a3b8'; // Default gray
-              if (routingResult) {
-                const driver = instance.drivers.find(d =>
-                  routingResult.drivers.find(dr =>
-                    dr.driver_id === d.driver_id &&
-                    dr.route.includes(stop.stop_id)
-                  )
-                );
-                if (driver) {
-                  const isSelected = selectedDriverId === null || selectedDriverId === driver.driver_id;
-                  assignedColor = isSelected ? driverColor(driver.driver_id) : '#cbd5e1';
-                }
-              }
+              const focused = selectedStopId === stop.stop_id;
 
               return (
-                <g key={stop.stop_id}>
+                <g key={stop.stop_id} role="button" tabIndex={0} aria-label={`Delivery stop ${stop.stop_id}`} aria-pressed={selectedStopId === stop.stop_id}
+                  onClick={() => onStopSelect?.(stop.stop_id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onStopSelect?.(stop.stop_id);}}}>
+                  {focused && <circle cx={sx} cy={sy} r="18" fill="none" stroke="#151515" strokeWidth="2"/>}
                   {/* Stop marker circle */}
                   <circle
                     cx={sx}
                     cy={sy}
                     r="12"
-                    fill={assignedColor}
-                    stroke="white"
+                    fill={focused ? '#151515' : '#F3C63B'}
+                    stroke="#151515"
                     strokeWidth="2.5"
                   />
                   {/* Stop number */}
@@ -277,7 +274,7 @@ export function RouteVisualization({
                     fontSize="11"
                     fontWeight="bold"
                     fontFamily="IBM Plex Mono"
-                    fill="white"
+                    fill={focused ? '#F3C63B' : '#151515'}
                   >
                     {stop.stop_id}
                   </text>
@@ -286,7 +283,7 @@ export function RouteVisualization({
             })}
           </svg>
 
-          <p className="mt-3 text-xs text-[#5f5f5d] italic">
+          <p className="mt-3 text-xs text-[#686868] italic">
             Synthetic coordinates with Euclidean (straight-line) distances. Not actual road distances.
           </p>
         </div>
@@ -295,8 +292,8 @@ export function RouteVisualization({
       {/* Unified Legend */}
       <div className="mt-4 flex flex-wrap gap-4 items-center">
         <div className="flex items-center gap-2">
-          <div className="w-4 h-4 bg-red-600 border-2 border-red-800 rounded-sm"></div>
-          <span className="text-sm text-[#5f5f5d] font-medium">Depot</span>
+          <div className="w-4 h-4 depot-key border-2 rounded-sm"></div>
+          <span className="text-sm text-[#686868] font-medium">Depot</span>
         </div>
         {instance.drivers.map(driver => (
           <button
@@ -311,14 +308,14 @@ export function RouteVisualization({
               className={`w-4 h-4 rounded-full border-2 ${
                 selectedDriverId === null || selectedDriverId === driver.driver_id
                   ? 'border-white shadow-sm'
-                  : 'border-[#eceae4] opacity-40'
+                  : 'border-[#DFDED7] opacity-40'
               }`}
-              style={{ backgroundColor: driverColor(driver.driver_id) }}
+              style={{ backgroundColor: mapRouteStyle(selectedMethod,selectedDriverId === null || selectedDriverId === driver.driver_id).color }}
             ></div>
             <span className={`text-sm ${
               selectedDriverId === null || selectedDriverId === driver.driver_id
-                ? 'text-[#5f5f5d] font-medium'
-                : 'text-[#5f5f5d]/40'
+                ? 'text-[#686868] font-medium'
+                : 'text-[#686868]/40'
             }`}>
               {driver.name}
             </span>
@@ -327,7 +324,7 @@ export function RouteVisualization({
         {selectedDriverId !== null && (
           <button
             onClick={() => setSelectedDriverId(null)}
-            className="text-xs text-[#0d9488] hover:text-[#0f766e] ml-2 font-semibold"
+            className="text-xs text-[#151515] hover:underline ml-2 font-semibold"
           >
             Show All
           </button>

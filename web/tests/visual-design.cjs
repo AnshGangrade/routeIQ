@@ -5,9 +5,20 @@ const React=require('react');
 const {renderToStaticMarkup:render}=require('react-dom/server');
 const {Home}=require('../src/components/Home.tsx');
 const {FitnessPlot,Lineage,ResearchVisuals,ComparisonBars,CandidateComparison}=require('../src/components/ResearchVisuals.tsx');
-const {driverColor,finiteSeries,sourceLabel}=require('../src/services/presentation.ts');
+const {driverColor,finiteSeries,sourceLabel,mapRouteStyle}=require('../src/services/presentation.ts');
 const {ConfirmationProvider}=require('../src/components/Design.tsx');
+const {ControllerEvidence}=require('../src/components/OptimizationDetails.tsx');
 const el=(component,props)=>render(React.createElement(component,props));
+
+test('adaptive evidence distinguishes offline proposals, fallback and measured units',()=>{
+ const html=el(ControllerEvidence,{evidence:{mode:'offline fixture',model:'fixture-model',calls:2,reserved_tokens:10000,reported_tokens:0,usage_known:false,model_seconds:.2,problem:{distance_units:'meters'},decisions:[
+  {stage:'initial',source:'offline fixture',accepted:true,request:{},proposal:{rationale:'<script>not executable</script>'}},
+  {stage:'checkpoint',source:'deterministic fallback',accepted:false,request:{error:'timeout'},telemetry:{best_distance:100,improvement_since_checkpoint:0,stagnated:true,remaining_operations:12,operator_statistics:{swap:{attempts:2,accepted_improvements:0,rejected_moves:2,operations:3,distance_reduction:0}}}}
+ ]}});
+ assert.match(html,/offline fixture/);assert.match(html,/deterministic fallback/);assert.match(html,/meters/);
+ assert.match(html,/incomplete reporting/);assert.match(html,/Rejected/);assert.match(html,/timeout/);
+ assert.doesNotMatch(html,/<script>|trained itself|LLM proposal/);
+});
 
 test('home illustration is explicitly decorative and cannot be mistaken for route evidence',()=>{
  const html=el(Home,{hasInstance:false});
@@ -18,6 +29,24 @@ test('home illustration is explicitly decorative and cannot be mistaken for rout
 test('driver colors remain consistent and distinct for the first ten drivers',()=>{
  assert.equal(new Set(Array.from({length:10},(_,i)=>driverColor(i))).size,10);
  assert.equal(driverColor(0),driverColor(10));assert.match(driverColor(-1),/^#[0-9a-f]{6}$/i);
+});
+
+test('map styles distinguish optimized selection, muted routes and historical baselines',()=>{
+ for(const method of ['nearest_neighbor','2opt']) {
+  const style=mapRouteStyle(method,true);
+  assert.equal(style.color,'#151515');assert.equal(style.dashArray,'8 6');assert.equal(style.casing,false);
+ }
+ for(const method of ['portfolio','vnd','vnd_ils','strategy','evolved']) {
+  const selected=mapRouteStyle(method,true),other=mapRouteStyle(method,false);
+  assert.equal(selected.color,'#F3C63B');assert.equal(selected.casing,true);assert.equal(selected.dashArray,undefined);
+  assert.equal(other.color,'#151515');assert.ok(other.opacity<selected.opacity);assert.equal(other.casing,false);
+ }
+});
+
+test('new driver palette stays achromatic and chart nodes preserve readable source labels',()=>{
+ for(let i=0;i<10;i++) { const rgb=driverColor(i).slice(1).match(/../g);assert.equal(new Set(rgb).size,1); }
+ const html=el(Lineage,{records:[{strategy_id:'winner',generation:0,creation_method:'seed',parents:[]}],bestId:'winner',offline:true});
+ assert.match(html,/fill="#F3C63B"/);assert.match(html,/Hand-authored/);
 });
 test('chart statistics ignore failed, nonfinite and negative observations but retain zero',()=>{
  assert.deepEqual(finiteSeries([null,NaN,Infinity,-1,0,12]),{min:0,max:12,count:2});

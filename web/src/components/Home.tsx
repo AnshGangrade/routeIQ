@@ -5,9 +5,9 @@ export function AtlasArtwork() {
   const points=[[70,250],[180,120],[240,340],[350,200],[420,80],[490,310]];
   return <svg className="atlas-art" viewBox="0 0 560 440" role="img" aria-label="Decorative route network, not a geographic map or route result">
     <circle className="network-orbit" cx="280" cy="220" r="180"/><circle className="network-orbit" cx="280" cy="220" r="120"/>
-    <path d="M70 250 180 120 350 200 420 80M70 250 240 340 490 310 350 200 240 340M180 120 240 340" fill="none" stroke="#b8d3c4" strokeWidth="1.5"/>
-    <path d="M70 250Q90 110 180 120T350 200Q440 190 490 310" fill="none" stroke="#173F3A" strokeWidth="2.5"/>
-    {points.map(([x,y],i)=><g key={i}><circle cx={x} cy={y} r={i===0?14:8} fill={i===0?'#39C99A':'#F3F7F4'} stroke="#173F3A" strokeWidth="2"/><circle cx={x} cy={y} r="2" fill="#173F3A"/></g>)}
+    <path d="M70 250 180 120 350 200 420 80M70 250 240 340 490 310 350 200 240 340M180 120 240 340" fill="none" stroke="#DFDED7" strokeWidth="1.5"/>
+    <path d="M70 250Q90 110 180 120T350 200Q440 190 490 310" fill="none" stroke="#151515" strokeWidth="2.5"/>
+    {points.map(([x,y],i)=><g key={i}><circle cx={x} cy={y} r={i===0?14:8} fill={i===0?'#F3C63B':'#F7F6F1'} stroke="#151515" strokeWidth="2"/><circle cx={x} cy={y} r="2" fill="#151515"/></g>)}
   </svg>;
 }
 
