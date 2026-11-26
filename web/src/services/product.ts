@@ -1,7 +1,10 @@
 import type { InstanceResponse, RoutingResultResponse } from '../types/api';
 
 export const activeStatus = (status?: string) => !!status && ['pending', 'running', 'cancelling'].includes(status);
-export const statusText = (value?: string) => (value || 'unavailable').replace(/_/g, ' ');
+export const statusText = (value?: string) => ({ils_iteration_limit:'configured ILS iterations finished',
+  controller_stop:'controller requested stop',operation_budget:'operation budget reached',
+  deadline:'time deadline reached',operator_call_limit:'operator-call limit reached',
+  neighborhood_limit:'neighborhood scan truncated',operator_error:'operator execution failed'} as Record<string,string>)[value||''] || (value || 'unavailable').replace(/_/g, ' ');
 
 export function validateRouteResult(instance: InstanceResponse, result: RoutingResultResponse) {
   if (result.instance_id !== instance.instance_id ||

@@ -1,12 +1,13 @@
 /** Presentation only: never changes API data, assignments, objectives or distances. */
-export const routePalette = ['#151515', '#303030', '#484848', '#606060', '#242424', '#3c3c3c', '#545454', '#686868', '#1e1e1e', '#424242'];
+export const routePalette = ['#426582', '#39736d', '#65774b', '#a5634d', '#78648c', '#94712d', '#47579a', '#8f536b', '#477d8b', '#766148',
+  '#51426d', '#28615b', '#547131', '#865140', '#936582', '#786223', '#304f78', '#7a3e58', '#356273', '#625442'];
 export const driverColor = (id: number) => routePalette[((id % routePalette.length) + routePalette.length) % routePalette.length];
 /** Shared SVG/Leaflet styling; route coordinates and measurement data stay untouched. */
-export function mapRouteStyle(method: string, selected: boolean) {
+export function mapRouteStyle(method: string, selected: boolean, driverId = 0) {
   const baseline = method === 'nearest_neighbor' || method === '2opt';
-  return { color: selected && !baseline ? '#F3C63B' : '#151515',
-    weight: selected ? 4 : 3, opacity: selected ? 1 : .35,
-    dashArray: baseline ? '8 6' : selected ? undefined : '3 7',
+  return { color: driverColor(driverId),
+    weight: selected ? 4 : 2.5, opacity: selected ? 1 : .65,
+    dashArray: baseline ? '8 6' : [undefined, '10 3', '3 4'][Math.abs(driverId) % 3],
     casing: selected && !baseline };
 }
 export const sourceLabel = (source: string, offline = false) => source === 'llm' && offline ? 'Offline fixture (not an LLM)' : ({seed:'Hand-authored',random:'Random',llm:'LLM proposal',mutation:'Mutation',crossover:'Crossover'}[source] || source);

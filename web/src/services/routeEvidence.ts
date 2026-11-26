@@ -13,8 +13,8 @@ export function verifiedMeasurement(instance: InstanceResponse, row?: Measured |
     !!instance.problem_fingerprint && !!instance.matrix_fingerprint &&
     row.problem_fingerprint === instance.problem_fingerprint && row.matrix_fingerprint === instance.matrix_fingerprint &&
     (!('instance_id' in row) || row.instance_id === instance.instance_id) &&
-    (!instance.distance_units || row.distance_units === instance.distance_units) &&
-    (!row.execution || ['completed', 'incomplete'].includes(row.execution.status));
+    ['meters','map_units'].includes(instance.distance_units || '') && row.distance_units === instance.distance_units &&
+    ['completed', 'incomplete'].includes(row.execution?.status || '');
 }
 
 export function savings(instance: InstanceResponse, result?: Measured | null, baseline?: Measured | null) {

@@ -4,18 +4,21 @@ import statistics
 from .fleet_reporting import improvement, tied, _statistics
 
 ARMS = ('hybrid', 'random', 'static_llm', 'adaptive_llm')
+ABLATION_ARMS = ('paired_static', 'paired_adaptive')
 
 
-def summarize(rows):
+def summarize(rows, arms=ARMS):
     """Rows are one selected incumbent per case/replication/arm, not pooled trials."""
     by_key = {(r['case_id'], r['seed'], r['arm']): r for r in rows}
     if len(by_key) != len(rows):
         raise ValueError('Duplicate measurements')
     keys = sorted({(r['case_id'], r['seed']) for r in rows})
     paired = []
-    for arm, reference in itertools.permutations(ARMS, 2):
+    for arm, reference in itertools.permutations(arms, 2):
         samples = []
         excluded = {k: 0 for k in ('missing', 'failed', 'incomplete')}
+        if arm in ABLATION_ARMS and reference in ABLATION_ARMS:
+            excluded['unmatched_initial'] = 0
         bounded = []
         for case, seed in keys:
             a, b = by_key.get((case, seed, arm)), by_key.get((case, seed, reference))
@@ -24,6 +27,12 @@ def summarize(rows):
                 continue
             for field in ('problem_fingerprint', 'matrix_fingerprint', 'allocation'):
                 if a[field] != b[field]: raise ValueError('Unmatched inputs or budgets')
+            if arm in ABLATION_ARMS and reference in ABLATION_ARMS and (
+                    not a.get('shared_initial_fingerprints') or
+                    a['shared_initial_fingerprints'] != b.get('shared_initial_fingerprints') or
+                    a.get('initial_routes_fingerprints') != b.get('initial_routes_fingerprints')):
+                excluded['unmatched_initial'] += 1
+                continue
             if not a['feasible'] or not b['feasible'] or 'failed' in (a['status'], b['status']):
                 excluded['failed'] += 1
                 continue
@@ -58,10 +67,10 @@ def summarize(rows):
         paired.append({'arm': arm, 'reference': reference, 'expected_pairs': len(keys),
             'excluded': excluded, 'completed_only': stats(samples), 'bounded_incumbents': stats(bounded),
             'by_characteristic': subgroups, 'per_pair': bounded})
-    arms = {}
-    for arm in ARMS:
+    arm_stats = {}
+    for arm in arms:
         values = [r for r in rows if r['arm']==arm]
-        arms[arm] = {'counts': {status: sum(r['status']==status for r in values) for status in ('completed','incomplete','failed','missing')},
+        arm_stats[arm] = {'counts': {status: sum(r['status']==status for r in values) for status in ('completed','incomplete','failed','missing')},
             'runtime': _statistics([r['seconds'] for r in values]), 'operations': _statistics([r['operations'] for r in values]),
             'provider_seconds': sum(r['provider_seconds'] for r in values),
             'actual_model_calls': sum(r['model_calls'] for r in values),
@@ -70,5 +79,5 @@ def summarize(rows):
             'unknown_work_trials': sum(r['unknown_work_trials'] for r in values),
             'winners_with_accepted_llm_initial': sum(r['winner_llm_initial'] for r in values),
             'winners_with_applied_llm_checkpoint': sum(r['winner_llm_checkpoint'] for r in values)}
-    return {'arms': arms, 'paired': paired,
+    return {'arms': arm_stats, 'paired': paired,
         'conclusion': 'No superiority conclusion is automatic. Inspect paired completion, independent cases, repeatability, overhead and regressions.'}

@@ -3,6 +3,7 @@ import random
 import time
 from dataclasses import dataclass, replace
 from .control import WorkSlice, StrategyController
+from .status import search_status
 
 from .budget import SearchBudget, SearchStopped
 from .construction import (
@@ -92,6 +93,10 @@ class HybridResult:
     errors: tuple[str, ...] = ()
     operator_telemetry: tuple[tuple[str, dict], ...] = ()
     controller: dict | None = None
+
+    @property
+    def execution_contract(self):
+        return search_status(self.termination_reason, truncated=self.neighborhoods_truncated, errors=self.errors)
 
 
 def _bootstrap(problem):
@@ -191,7 +196,10 @@ class _Search:
         previous=self.best.total_distance
         for checkpoint in range(controller.max_checkpoints+1):
             if self.reason or not parent.check(): break
-            self.budget=WorkSlice(parent,allocation) if checkpoint<controller.max_checkpoints else parent
+            # Reserve real work after feedback, even when a proposal asks for the
+            # entire remaining allowance. The parent alone owns the global cap.
+            share=max(1,(parent.limit-parent.used)//(controller.max_checkpoints-checkpoint+1))
+            self.budget=WorkSlice(parent,min(allocation,share)) if checkpoint<controller.max_checkpoints else parent
             try: current=self.vnd(current)
             finally: self.budget=parent
             if self.reason or not parent.check() or checkpoint==controller.max_checkpoints: break
@@ -213,12 +221,17 @@ class _Search:
                 raise ValueError('Unsupported controller action')
             if type(action.operation_slice) is not int or not 100<=action.operation_slice<=20000:
                 raise ValueError('Invalid checkpoint allocation')
-            applied={'action':action.action,'status':'applied','remaining_operations':parent.limit-parent.used}
+            applied={'action':action.action,'status':'applied','host_decision':'accepted',
+                     'schedule_changed':False,'remaining_operations':parent.limit-parent.used}
             if action.action=='stop':
                 if hasattr(controller,'applied'): controller.applied(applied)
                 self.reason='controller_stop'; break
-            if action.action=='reorder': self.config=replace(self.config,operators=action.operators)
-            if action.max_moves is not None: self.config=replace(self.config,max_moves_per_operator=action.max_moves)
+            if action.action=='reorder':
+                applied['schedule_changed']=tuple(action.operators)!=self.config.operators
+                self.config=replace(self.config,operators=action.operators)
+            if action.max_moves is not None:
+                applied['schedule_changed'] |= action.max_moves!=self.config.max_moves_per_operator
+                self.config=replace(self.config,max_moves_per_operator=action.max_moves)
             allocation=action.operation_slice
             current=self.best
             if action.action=='diversify' and telemetry['diversifications_remaining']>0 and telemetry['stagnated']:
@@ -227,9 +240,12 @@ class _Search:
                     self.diversifications+=1
                     self.iterations+=1
                     current=proposal
-                else: applied.update(status='not_applied',reason='no_valid_perturbation')
+                    applied['schedule_changed']=True
+                else: applied.update(status='not_applied',host_decision='denied',reason='no_valid_perturbation')
             elif action.action=='diversify':
-                applied.update(status='not_applied',reason='no_stagnation_or_diversification_allowance')
+                applied.update(status='not_applied',host_decision='denied',reason='no_stagnation_or_diversification_allowance')
+            if action.action=='reorder' and not applied['schedule_changed']:
+                applied['effect']='ineffective: requested schedule already active'
             if hasattr(controller,'applied'): controller.applied(applied)
 
     def perturb(self, current):
@@ -315,6 +331,7 @@ def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
     candidates = [CandidateReport("ordered_feasible_seed", "completed", search.best)]
     methods = CONSTRUCTORS if construction_strategy == "portfolio" else tuple(dict.fromkeys(
         ("legacy_nn", "legacy_2opt", construction_strategy)))
+    optional_budget = None
     for method in methods:
         if not budget.check():
             candidates.append(CandidateReport(method, "not_started"))
@@ -328,17 +345,26 @@ def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
             candidates.append(CandidateReport(method, "not_applicable", detail="Legacy assignment requires coordinates"))
             continue
         try:
-            budget.require("constructor_call")
+            # Mandatory comparators retain their historical full traversal. Only
+            # optional constructors share at most one third of remaining work.
+            # Their interrupted candidates remain explicit, never full baselines.
+            if controller is not None and not method.startswith('legacy_'):
+                if optional_budget is None:
+                    optional_budget=WorkSlice(budget,max(0,(budget.limit-budget.used)//3))
+                constructor_budget=optional_budget
+            else:
+                constructor_budget=budget
+            constructor_budget.require("constructor_call")
             if method.startswith("legacy_"):
                 raw = legacy_angular_round_robin(seeded_problem,
-                    method="nearest_neighbor" if method == "legacy_nn" else "2opt", budget=budget)
+                    method="nearest_neighbor" if method == "legacy_nn" else "2opt", budget=constructor_budget)
             elif method == "nearest_neighbor_starts":
-                raw = nearest_neighbor_starts(seeded_problem, attempts=config.nn_attempts, budget=budget)
+                raw = nearest_neighbor_starts(seeded_problem, attempts=config.nn_attempts, budget=constructor_budget)
             elif method == "cheapest_insertion":
-                raw = cheapest_insertion(seeded_problem, budget=budget)
+                raw = cheapest_insertion(seeded_problem, budget=constructor_budget)
             else:
-                raw = contiguous_sweep(seeded_problem, budget=budget)
-            status = "interrupted" if budget.reason else "completed"
+                raw = contiguous_sweep(seeded_problem, budget=constructor_budget)
+            status = "interrupted" if constructor_budget.reason else "completed"
             plan = search.record("construction", method, raw, None, status)
             candidates.append(CandidateReport(method, status, plan))
         except SearchStopped as exc:
@@ -367,9 +393,9 @@ def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
         reason = "completed_with_errors"
     final = checked_plan(seeded_problem, search.best.routes, search.best.method, search.best.work)
     improvement = (initial.total_distance - final.total_distance) / initial.total_distance * 100 if initial.total_distance else 0.0
-    exhausted = reason in {"operation_budget", "deadline", "operator_call_limit", "ils_iteration_limit", "neighborhood_limit"} or bool(search.truncated)
-    status = ("failed" if reason in {"operator_error", "cancellation_error"} else
-              "completed" if reason in {"local_search_complete", "no_perturbation_available"} else "stopped")
+    contract=search_status(reason,truncated=search.truncated,errors=search.errors)
+    exhausted=contract['budget_exhausted']
+    status=contract['search_status'] if contract['search_status'] in ('failed','completed') else 'stopped'
     evidence=controller.snapshot() if controller is not None else None
     if evidence is not None:
         evidence.update(termination=reason,final_distance=final.total_distance,operations_used=budget.used,

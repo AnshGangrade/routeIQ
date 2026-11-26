@@ -1,3 +1,10 @@
+> Current contract (2026-11-26): the active product is the integrated planning
+> workspace and canonical FleetProblem with trusted construction/VND/ILS, declarative
+> strategy evolution and bounded native Ollama feedback (`qwen3:1.7b`). Historical
+> executable-code guidance below applies only to legacy APIs. Preserve research
+> records, independent validation, baseline definitions and split protection.
+> README.md and docs/product-quality-pass.md describe the current workflow.
+
 # RouteIQ Design Guidance
 
 ## Priority: Function Over Form
@@ -14,7 +21,7 @@ The capstone is evaluated on algorithmic contribution and implementation quality
 - **No neon colors, no unnecessary visual clutter**
 
 ### Typography
-- System font stack (no custom fonts required)
+- Local Inter font; IBM Plex Mono for selected measurements
 - 2-3 heading sizes maximum
 - Clear hierarchy through size and weight, not elaborate letter-spacing
 - Readable body text (16px)
@@ -22,12 +29,12 @@ The capstone is evaluated on algorithmic contribution and implementation quality
 ### Components
 - Simple flat cards with subtle borders
 - Clean button styles (solid or outlined)
-- Default Leaflet map styling
+- Monochrome Leaflet base map; stable muted driver colors, numbered markers and line patterns
 - Default Recharts styling
 - Adequate whitespace for readability
 
 ### Layout
-- Responsive grid for dashboard sections
+- Integrated planning column and persistent map; collapsible column on mobile
 - Map takes prominent space
 - Metrics table clearly formatted
 - Charts sized appropriately

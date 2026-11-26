@@ -9,6 +9,8 @@ export function OptimizationDetails({ result, mode }: { result: RoutingResultRes
     <div className="section-heading"><div><p className="eyebrow">Measured on this plan</p><h2>Optimization details</h2></div><span className={`badge ${e.status !== 'completed' ? 'warning' : ''}`}>{statusText(e.status)}</span></div>
     <p className="small muted">{statusText(e.termination)}. {e.budget_exhausted ? 'A search limit was reached. This is a feasible result within the budget, not proof of optimality.' : 'Every route was checked against the selected problem.'}</p>
     <dl className="execution-grid">
+      <div><dt>Execution contract</dt><dd>{e.schema_version || 'Legacy record; original status retained'}</dd></div>
+      {e.search_status && <div><dt>Search procedure</dt><dd>{statusText(e.search_status)}</dd></div>}
       {e.initial_distance != null && <div><dt>Initial construction</dt><dd>{formatDistance(e.initial_distance, mode)}</dd></div>}
       <div><dt>Final fleet distance</dt><dd>{formatDistance(result.total_distance, mode)}</dd></div>
       <div><dt>Longest driver route</dt><dd>{formatDistance(result.longest_route_distance, mode)}</dd></div>

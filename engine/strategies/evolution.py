@@ -11,7 +11,7 @@ import time
 import uuid
 from .models import StrategyConfig, StrategyRecord, ExperimentConfig, Proposal
 from .provider import OfflineProvider
-from .evaluation import development_panel, evaluate_one, fitness, rank
+from .evaluation import development_panel, evaluate_one, fitness, rank, candidate_rankings
 from engine.evaluation.fleet_dataset import digest
 from .protocol import software_record
 from engine.routing.validation import validate_fleet_solution
@@ -154,6 +154,7 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
     def save():
         state['elapsed_seconds']=elapsed(); state['rng']=rng.getstate()
         state['records']={k:v.model_dump(mode='json') for k,v in records.items()}
+        state['rankings']=candidate_rankings(records.values())
         atomic_json(output/'checkpoint.json',{'state':state,'checksum':digest(state)})
         if progress: progress(json.loads(json.dumps(state)))
     def reject(reason): state['rejections'][reason]=state['rejections'].get(reason,0)+1

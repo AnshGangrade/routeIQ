@@ -6,7 +6,7 @@ export const comparisonMethods = ['nearest_neighbor', '2opt', 'portfolio'] as co
 export const comparisonBudget = { operations:100000, seconds:10, search_seed:0 };
 export interface ComparisonProgress { status:string; stage:string; errors:string[]; }
 export function recommendedResult(rows:MethodComparison[]) {
-  const valid=rows.filter(r=>r.feasible===true && Number.isFinite(r.total_distance) && r.total_distance>=0 && r.execution?.status!=='failed');
+  const valid=rows.filter(r=>r.feasible===true && Number.isFinite(r.total_distance) && r.total_distance>=0 && ['completed','incomplete'].includes(r.execution?.status||''));
   const completed=valid.filter(r=>r.execution?.status==='completed');
   return (completed.length?completed:valid).reduce<MethodComparison|null>((best,r)=>!best||r.total_distance<best.total_distance?r:best,null);
 }

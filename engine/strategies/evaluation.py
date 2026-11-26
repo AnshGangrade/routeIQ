@@ -29,6 +29,7 @@ def evaluate_one(problem,strategy,config,cancel=lambda:False):
         # Raw global best is already guarded inside the unchanged hybrid. Do not
         # clip to an external baseline or credit selection as an improvement.
         row.update(status='failed' if r.errors or r.status=='failed' else 'completed' if r.status=='completed' else 'incomplete',
+            execution_contract=r.execution_contract,
             feasible=True,total_distance=checked.total_distance,longest_route=checked.longest_route_distance,
             routes=r.final_solution.routes,operations=r.operations_used,operator_calls=r.operator_calls,
             accepted_moves=r.accepted_moves,termination=r.termination_reason,
@@ -65,3 +66,18 @@ def fitness(rows,expected):
 def rank(record):
     value=record.fitness.get('mean_distance')
     return (value if value is not None and math.isfinite(value) else math.inf,record.configuration_fingerprint)
+
+
+def candidate_rankings(records):
+    """Two explicit rankings; retain the historical bounded evolutionary fitness."""
+    bounded=sorted((r for r in records if r.fitness.get('eligible')
+                    and r.fitness.get('mean_distance') is not None
+                    and math.isfinite(r.fitness['mean_distance'])),key=rank)
+    completed=[r for r in bounded if r.fitness.get('expected_cases',0)>0
+               and r.fitness.get('completed')==r.fitness['expected_cases']
+               and not any(r.fitness.get(k,0) for k in ('incomplete','failed','missing_cases'))]
+    return {'schema':'candidate-ranking/v2',
+            'completed_only':[r.strategy_id for r in completed],
+            'bounded_incumbents':[r.strategy_id for r in bounded],
+            'recommended_id':(completed or bounded)[0].strategy_id if bounded else None,
+            'recommendation_kind':'completed' if completed else 'incomplete' if bounded else 'unavailable'}

@@ -70,17 +70,27 @@ test('insight controls focus the measured driver or the fleet, with no invented 
  const list=tree.props.children[1];
  for(const li of list.props.children) li.props.children[1].props.onClick();
  assert.deepEqual(selected,[null,null,0]);
- assert.match(el(RouteExplanation,{instance,result:{...result,execution:null},onFocus(){}}),/No measured move-level explanation/);
+ assert.equal(el(RouteExplanation,{instance,result:{...result,execution:null},onFocus(){}}),'');
 });
-test('comparison highlights the shortest valid result even when its search is incomplete',()=>{
+test('comparison recommends completion and keeps a shorter incomplete alternative',()=>{
  const comparison={...instance,comparisons:[baseline,result,{...result,method:'adaptive',total_distance:1,feasible:false}]};
  const html=el(CompareScreen,{instance,comparison});
- assert.match(html,/Shortest validated route found/);assert.match(html,/800 m/);assert.match(html,/Valid incumbent/);
- assert.match(html,/200 m saved/);assert.doesNotMatch(html,/99.9% shorter|<details[^>]* open/);
+ assert.match(html,/Best completed route/);assert.match(html,/Shorter incomplete alternative/);assert.match(html,/800 m/);assert.match(html,/Valid incumbent/);
+ assert.match(html,/200 m shorter than the completed recommendation/);assert.doesNotMatch(html,/99.9% shorter|<details[^>]* open/);
  assert.match(completionText(result),/budget reached/);
 });
 test('legacy comparisons without fingerprints or feasibility cannot display percentage savings',()=>{
  const legacy={instance_id:'plan',mode:'road',num_stops:3,num_drivers:2};
  const comparison={instance_id:'plan',comparisons:[{method:'nearest_neighbor',total_distance:1000,longest_route_distance:600,computation_time:.1},{method:'2opt',total_distance:800,longest_route_distance:400,computation_time:.1}]};
  assert.doesNotMatch(el(CompareScreen,{instance:legacy,comparison}),/20.0% shorter/);
+});
+
+test('unknown distance units cannot establish savings even with matching fingerprints',()=>{
+ assert.equal(savings({...instance,distance_units:undefined},{...result,distance_units:undefined},{...baseline,distance_units:undefined}),null);
+});
+test('unknown legacy completion never outranks an explicitly incomplete measured route',()=>{
+ const {recommendedResult}=require('../src/services/comparison.ts');
+ assert.equal(recommendedResult([{...baseline,execution:undefined}]),null);
+ assert.equal(recommendedResult([{...baseline,execution:undefined,total_distance:1},result]),result);
+ assert.equal(savings(instance,result,{...baseline,execution:undefined}),null);
 });

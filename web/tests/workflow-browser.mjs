@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, '../runs/phase6-verification/workflow-browser');
+const output = path.resolve(root, '../runs/product-quality-20261126/workflow-browser');
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
@@ -165,9 +165,9 @@ try {
   const screenshot = async name => { await delay(200); const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); writeFileSync(path.join(output, name + '.png'), Buffer.from(data, 'base64')); };
   const check = name => { checks.push(name); console.log('PASS ' + name); };
   await send('Page.navigate', { url: base });
-  await waitFor(`document.querySelector('h1')?.textContent.includes('clearer path')`);
+  await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
   // A cold Vite dependency pre-bundle can reload after the first render.
-  await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`document.querySelector('h1')?.textContent.includes('clearer path')`);
+  await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
   assert.equal(await evaluate(`!!document.querySelector('input')`), false);
   await screenshot('01-home-desktop'); check('Home offers one clear starting action without configuration');
   await click('Create route plan'); await waitFor(`!!document.querySelector('.planning-workspace')`);
@@ -229,7 +229,7 @@ try {
   assert.equal(routes.has('plan-1:strategy'),false);
   check('Development score and incomplete evidence remain separate from unapplied route results');
   await screenshot('05-strategy-experiments-desktop');
-  await click('Apply strategy to current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
+  await click('Test strategy on current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
   const application=requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body;
   assert.equal(application.instance_id,'plan-1');assert.equal(application.strategy_job_id,'strategy-2');assert.equal(application.strategy_id,'winner');
   await click('Compare','nav a');await waitFor(`document.querySelector('.comparison-grid')?.textContent.includes('80.00 map units')`);
@@ -245,7 +245,7 @@ try {
   await click('Generate Plan'); await waitFor(`document.querySelector('[role=alert]')?.textContent.includes('Refinement temporarily unavailable')`);
   assert.match(await evaluate(`document.querySelector('.route-summary').textContent`), /100.00 map units/);
   partialFailure = false; await click('2-Opt'); await waitFor(`document.querySelector('.route-summary')?.textContent.includes('80.00 map units')`); check('Partial routing failures retain usable results and retry successfully');
-  await click('Strategy Experiments','nav a');await screenshot('09-strategy-experiments-mobile');await click('Apply strategy to current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
+  await click('Strategy Experiments','nav a');await screenshot('09-strategy-experiments-mobile');await click('Test strategy on current plan');await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
   assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body.instance_id,'plan-2'); check('Same winner recomputes against a different selected instance');
   assert.equal(blocked.length, 0); check('Synthetic workflow loads no external browser resources');
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });

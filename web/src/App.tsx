@@ -151,7 +151,7 @@ function App() {
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); main.current?.focus(); }}>Skip to content</a>
     <header className="app-header"><a href="#home" className="brand" aria-label="RouteIQ home"><BrandMark /><span>Route<span className="brand-iq">IQ</span></span></a><nav aria-label="Main navigation">
       {([['home', 'Home'], ['routes', 'Route Plan'], ['compare', 'Compare'], ['lab', 'Strategy Experiments']] as [View, string][]).map(([target, title]) => <a key={title} title={title} href={`#${target}`} aria-current={view === target || title === 'Route Plan' && view === 'setup' ? 'page' : undefined}><Icon name={title === "Home" ? "home" : title === "Route Plan" ? "map" : title === "Compare" ? "compare" : "lab"} size={17}/><span>{title}</span>{title === 'Strategy Experiments' && strategyStatus && <span className="live-dot" aria-label="Experiment running" />}</a>)}
-    </nav><span className="header-note">Delivery planning, made clearer.</span></header>
+    </nav></header>
     <div className="context-bar"><span>{instance ? `${draftChanged ? 'Saved ' : ''}${instance.mode === 'road' ? 'Road' : 'Demo'} plan · ${instance.num_stops} stops · ${instance.num_drivers} drivers` : (view === 'setup' || view === 'routes') ? 'Draft plan' : 'No plan selected'}</span>{instance && <span className="instance-id" title={instance.instance_id}>Plan {instance.instance_id.slice(-8)}</span>}{comparing && <a href="#compare">Route comparison / {comparisonProgress?.status}</a>}{optimizing && <a href="#routes">Optimization · {optimization?.status}</a>}{strategyStatus && <a href="#lab">Strategy experiment · {strategyStatus}</a>}</div>
     <main id="main-content" ref={main} tabIndex={-1} className="app-main">
       {busy && <p role="status" className="notice busy">{busy} Your settings are preserved.</p>}
@@ -161,7 +161,7 @@ function App() {
       {planVisited && <div className="planning-host" hidden={view!=='setup'&&view!=='routes'}><PlanningWorkspace draft={draft} setDraft={setDraft} instance={instance} result={currentResult} results={results} stale={draftChanged} busy={busyNow} method={method} onMethod={value=>{setMethod(value);setDriver(null);}} driver={driver} onDriver={setDriver} onGenerate={create} onRun={solve} budget={budget} setBudget={setBudget} job={optimization} optimizationError={optimizationError} onCancel={cancelOptimization}/></div>}
       {view === 'compare' && (instance && !draftChanged ? <CompareScreen onCompare={runComparison} onCancelComparison={cancelComparison} progress={comparisonProgress} instance={instance} comparison={comparison} loading={comparisonLoading} error={comparisonError} busy={busyNow} evolution={null} appliedRunId={null} onRetry={() => setRefresh(value => value + 1)} onRun={solve} onView={value => { if (results.has(value)) { setMethod(value); setDriver(null); navigate('routes'); } else void solve(value); }} /> : emptyPlan)}
       {labVisited && <div hidden={view !== 'lab'}><StrategyLab hasInstance={!!instance && !draftChanged} applying={busyNow} onApply={(job, candidate) => optimize('strategy', job, candidate)} onStatus={setStrategyStatus} /></div>}
-    </main><footer className="app-footer"><span>RouteIQ · Delivery route planning</span><span>Measured results. Clear comparisons.</span></footer>
+    </main><footer className="app-footer"><span>RouteIQ · Delivery route planning</span></footer>
   </div></ConfirmationProvider>;
 }
 export default App;

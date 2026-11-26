@@ -10,9 +10,9 @@ const { CompareScreen } = require('../src/components/CompareScreen.tsx');
 const { StrategyLab } = require('../src/components/StrategyLab.tsx');
 const { OptimizationDetails } = require('../src/components/OptimizationDetails.tsx');
 const flush = () => new Promise(setImmediate);
-const instance = { instance_id: 'plan', problem_fingerprint: 'problem', matrix_fingerprint: 'matrix', mode: 'synthetic', num_stops: 3, num_drivers: 2,
+const instance = { instance_id: 'plan', problem_fingerprint: 'problem', matrix_fingerprint: 'matrix', distance_units:'map_units', mode: 'synthetic', num_stops: 3, num_drivers: 2,
   stops: [1,2,3].map(stop_id => ({ stop_id })), workload: { minimum_stops: [1,1], maximum_stops: [2,2] } };
-const result = { instance_id: 'plan', problem_fingerprint: 'problem', matrix_fingerprint: 'matrix', method: 'vnd', feasible: true,
+const result = { instance_id: 'plan', problem_fingerprint: 'problem', matrix_fingerprint: 'matrix', distance_units:'map_units', method: 'vnd', feasible: true,
   total_distance: 12, longest_route_distance: 8, computation_time: .1,
   drivers: [{driver_id: 0, route: [0,1,2,0], distance: 8}, {driver_id: 1, route: [0,3,0], distance: 4}] };
 
@@ -92,7 +92,7 @@ test('optimization and strategy service calls preserve scoped identifiers and bu
 
 test('comparison excludes mismatched matrices while labeling incomplete valid plans', () => {
   const comparison={instance_id:'plan',matrix_fingerprint:'matrix',problem_fingerprint:'problem',comparisons:[
-    {...result,method:'nearest_neighbor',total_distance:10},
+    {...result,method:'nearest_neighbor',total_distance:10,execution:{status:'completed'}},
     {...result,execution:{status:'incomplete',termination:'operation_budget',operations:100,budget_exhausted:true}},
     {...result,method:'portfolio',matrix_fingerprint:'other',total_distance:1}]};
   const html=renderToStaticMarkup(React.createElement(CompareScreen,{instance,comparison}));

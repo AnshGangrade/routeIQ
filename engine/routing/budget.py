@@ -20,6 +20,7 @@ class SearchBudget:
                 or not math.isfinite(time_limit_seconds) or time_limit_seconds < 0):
             raise ValueError("time_limit_seconds must be finite and nonnegative")
         self.limit = max_operations
+        self.time_limit_seconds = float(time_limit_seconds)
         self.used = 0
         self.counts = Counter()
         self.clock = clock

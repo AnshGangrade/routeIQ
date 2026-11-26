@@ -195,6 +195,8 @@ export interface ComparisonResponse {
 }
 
 export interface Execution {
+  schema_version?: string; route_validity?: string; search_status?: string;
+  schedule_completed?: boolean; neighborhoods_truncated?: number;
   controller?: AdaptiveEvidence | null;
   status: string; termination: string; initial_distance?: number; final_distance?: number;
   improvement_percent?: number; initial_definition?: string; operations: number | null;
@@ -235,8 +237,10 @@ export interface StrategyRecord {
   strategy_id: string; parents: string[]; generation: number; configuration_fingerprint: string;
   config: Record<string, unknown>; rationale: string; creation_method: 'seed' | 'llm' | 'mutation' | 'crossover' | 'random';
   fitness: StrategyFitness;
+  evaluation_history?: Array<{rows:Array<{feasible:boolean;status:string;case_id:string}>}>;
 }
 export interface StrategyExperiment {
+  proposal_events?: Array<{source:string;outcome:string;strategy_id?:string}>;
   job_id?: string; experiment_id?: string; status: string; termination?: string | null;
   generation?: number; best_id?: string | null; population?: string[]; records?: Record<string, StrategyRecord>;
   history?: Array<{ generation: number; best_so_far: number | null; unique_configurations: number; behavioral_diversity: number; population: string[] }>;

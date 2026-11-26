@@ -1,3 +1,10 @@
+> Current contract (2026-11-26): the active product is the integrated planning
+> workspace and canonical FleetProblem with trusted construction/VND/ILS, declarative
+> strategy evolution and bounded native Ollama feedback (`qwen3:1.7b`). Historical
+> executable-code guidance below applies only to legacy APIs. Preserve research
+> records, independent validation, baseline definitions and split protection.
+> README.md and docs/product-quality-pass.md describe the current workflow.
+
 # RouteIQ Product Requirements
 
 ## Core Mission
@@ -8,7 +15,7 @@ LLM-guided evolutionary heuristic discovery for delivery route optimization. Res
 - Synthetic instance generator with configurable stops and drivers
 - LLM-generated heuristic scoring functions (NOT full route builders)
 - Evolutionary loop: generate → validate → evaluate → select → feedback
-- Multi-driver routing with deterministic stop assignment shared across all algorithms
+- Fleet routing with common matrix, objective and workload constraints; trusted operators may change assignment. Historical baseline assignment remains unchanged.
 - Fair comparison: identical test instances and consistent assignments
 - Interactive dashboard: map, routes, orders, metrics, algorithm comparison
 - Mock/replay mode for development and demos without live LLM calls
@@ -19,7 +26,7 @@ LLM-guided evolutionary heuristic discovery for delivery route optimization. Res
 - User authentication or accounts
 - Mobile app
 - Model training or fine-tuning
-- Road distance APIs (use Euclidean only)
+- Paid geocoding and live traffic (OSRM road distance/geometry is supported)
 - Capacity constraints (optional only)
 - Time windows (optional only)
 

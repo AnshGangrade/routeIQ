@@ -79,6 +79,7 @@ class AdaptiveController:
         self.state['search_seed']=seed
         self.state['source_fingerprint']=source_fingerprint(Path(__file__).resolve().parents[2])
         self.state['operation_budget']=budget.limit
+        self.state['time_limit_seconds']=budget.time_limit_seconds
         self.state['problem']=summarize_problem(problem)
         experience=development_experience(self.experience,problem,maximum=4)
         self.state['experience']=experience
@@ -148,6 +149,7 @@ class ReplayController:
         if problem.fingerprint!=self.record['problem']['problem_fingerprint']: raise ValueError('Replay problem mismatch')
         if seed!=self.record['search_seed']: raise ValueError('Replay seed mismatch')
         if budget.limit!=self.record['operation_budget']: raise ValueError('Replay work budget mismatch')
+        if budget.time_limit_seconds!=self.record.get('time_limit_seconds'): raise ValueError('Replay time budget mismatch')
         if self.record['source_fingerprint']!=source_fingerprint(Path(__file__).resolve().parents[2]): raise ValueError('Replay source mismatch')
         first=InitialSelection.model_validate(self.record['decisions'][0]['proposal'])
         return InitialControl(first.config.construction,first.config.search_config(),first.operation_slice)

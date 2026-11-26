@@ -76,8 +76,8 @@ export function LocationPicker({
           onClick={() => setClickMode(clickMode === 'depot' ? 'none' : 'depot')}
           className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
             clickMode === 'depot'
-              ? 'bg-[#F3C63B] text-[#151515] border-[#151515]'
-              : 'bg-white text-[#151515] border-[#DFDED7] hover:bg-[#F7F6F1]'
+              ? 'bg-[#D9B65A] text-[#191919] border-[#191919]'
+              : 'bg-white text-[#191919] border-[#E1DFD7] hover:bg-[#F6F5F0]'
           }`}
         >
           {clickMode === 'depot' ? 'Click map for depot' : 'Set Depot'}
@@ -89,8 +89,8 @@ export function LocationPicker({
           onClick={() => setClickMode(clickMode === 'stop' ? 'none' : 'stop')}
           className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
             clickMode === 'stop'
-              ? 'bg-[#F3C63B] text-[#151515] border-[#151515]'
-              : 'bg-white text-[#151515] border-[#DFDED7] hover:bg-[#F7F6F1]'
+              ? 'bg-[#D9B65A] text-[#191919] border-[#191919]'
+              : 'bg-white text-[#191919] border-[#E1DFD7] hover:bg-[#F6F5F0]'
           }`}
         >
           {clickMode === 'stop' ? 'Click map for stops' : 'Add Stops'}
@@ -99,7 +99,7 @@ export function LocationPicker({
           <button
             type="button"
             onClick={() => setClickMode('none')}
-            className="px-3 py-2 text-sm rounded-md border border-[#DFDED7] bg-white text-[#151515] hover:bg-[#F7F6F1]"
+            className="px-3 py-2 text-sm rounded-md border border-[#E1DFD7] bg-white text-[#191919] hover:bg-[#F6F5F0]"
           >
             Cancel
           </button>
@@ -108,7 +108,7 @@ export function LocationPicker({
 
       {/* Instruction text */}
       {!readOnly && clickMode !== 'none' && (
-        <div className="text-xs text-[#151515] bg-[#F7F6F1] border border-[#DFDED7] rounded p-2">
+        <div className="text-xs text-[#191919] bg-[#F6F5F0] border border-[#E1DFD7] rounded p-2">
           {clickMode === 'depot' 
             ? '👆 Click anywhere on the map to set the depot location'
             : '👆 Click anywhere on the map to add a delivery stop'
@@ -160,7 +160,7 @@ export function LocationPicker({
             >
               <Popup>
                 <div className="text-sm">
-                  <strong className="text-[#151515]">Depot</strong>
+                  <strong className="text-[#191919]">Depot</strong>
                   <br />
                   {readOnly ? 'Selected depot' : 'Drag to reposition'}
                 </div>
@@ -202,7 +202,7 @@ export function LocationPicker({
                     {!readOnly && <button
                       type="button"
                       onClick={() => onStopRemove(idx)}
-                      className="mt-2 text-xs text-[#151515] hover:underline underline"
+                      className="mt-2 text-xs text-[#191919] hover:underline underline"
                     >
                       Remove
                     </button>}
@@ -215,14 +215,14 @@ export function LocationPicker({
       </div>
 
       {/* Summary */}
-      <div className="text-sm text-[#686868] space-y-1">
+      <div className="text-sm text-[#6D6D69] space-y-1">
         <div className="flex items-center justify-between">
           <span>Depot: {hasValidDepot ? 'Set' : 'Not set'}</span>
           {hasValidDepot && !readOnly && onDepotClear && (
             <button
               type="button"
               onClick={onDepotClear}
-              className="text-xs text-[#151515] hover:underline"
+              className="text-xs text-[#191919] hover:underline"
             >
               <Icon name="close" size={14}/> Clear
             </button>
@@ -239,7 +239,7 @@ export function LocationPicker({
                   onStopRemove(i);
                 }
               }}
-              className="text-xs text-[#151515] hover:underline"
+              className="text-xs text-[#191919] hover:underline"
             >
               Clear All
             </button>

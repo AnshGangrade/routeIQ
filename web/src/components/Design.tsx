@@ -20,7 +20,7 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg className="ui-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
 export function BrandMark() {
-  return <svg width="42" height="42" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M4 32C13 14 21 35 38 21M5 39c12-13 25-4 34-14" stroke="#F3C63B" strokeWidth="2" strokeLinecap="round"/><path d="M22 4a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8Z" fill="#F3C63B"/><circle cx="22" cy="12" r="3" fill="#F7F6F1"/></svg>;
+  return <svg width="42" height="42" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M4 32C13 14 21 35 38 21M5 39c12-13 25-4 34-14" stroke="#D9B65A" strokeWidth="2" strokeLinecap="round"/><path d="M22 4a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8Z" fill="#D9B65A"/><circle cx="22" cy="12" r="3" fill="#F6F5F0"/></svg>;
 }
 export function Tip({ text }: { text: string }) {
   return <span className="tooltip"><button type="button" className="tip-trigger" aria-label={text}><Icon name="info" size={15} /></button><span role="tooltip">{text}</span></span>;

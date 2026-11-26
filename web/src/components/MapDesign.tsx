@@ -3,11 +3,11 @@ import { ScaleControl, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { Icon } from './Design';
 
-const pin = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48"><path d="M20 46S3 29 3 20a17 17 0 1 1 34 0c0 9-17 26-17 26Z" fill="#151515" stroke="#FFFFFF" stroke-width="2.5"/><circle cx="20" cy="19" r="7" fill="#F3C63B"/></svg>';
+const pin = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 40 48"><path d="M20 46S3 29 3 20a17 17 0 1 1 34 0c0 9-17 26-17 26Z" fill="#191919" stroke="#FFFFFF" stroke-width="2.5"/><circle cx="20" cy="19" r="7" fill="#D9B65A"/></svg>';
 export const atlasDepotIcon = L.icon({iconUrl:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(pin),iconSize:[40,48],iconAnchor:[20,46],popupAnchor:[0,-40],className:'atlas-depot'});
-export const atlasStopIcon = (number: number, _color = '#F3C63B', selected = true, focused = false) => L.divIcon({
+export const atlasStopIcon = (number: number, color = '#94712d', selected = true, focused = false) => L.divIcon({
   className: `atlas-stop ${selected ? 'emphasized' : 'subdued'} ${focused ? 'focused-stop' : ''}`,
-  html:`<span>${Number.isInteger(number)?number:''}</span>`,
+  html:`<span style="--driver-color:${/^#[0-9a-f]{6}$/i.test(color)?color:'#6D6D69'}">${Number.isInteger(number)?number:''}</span>`,
   iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-16],
 });
 export const tileURL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';

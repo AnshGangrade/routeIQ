@@ -19,6 +19,7 @@ export function CompactResults({ result, instance, results }: Props) {
     <p className="small">{feasible ? 'Feasible · every stop served exactly once' : 'Feasibility not verified'}<br/>{completionText(result)}</p>
     <p className="small muted">Calculation runtime: {Number.isFinite(result.computation_time) && result.computation_time >= 0 ? `${result.computation_time.toFixed(3)} s` : 'Unavailable'}. Road geometry retrieval is separate.</p>
     {duration != null && <p className="small">Driving time: {Math.round(duration/60)} min summed across drivers, not fleet finish time.</p>}
+    <p className="small">Longest driver route: {feasible ? formatDistance(result.longest_route_distance,instance.mode) : "Not verified"}</p>
     <p className="small">Workload: {result.drivers.map(d=>`Driver ${d.driver_id+1}: ${Math.max(0,d.route.length-2)} stops`).join(' · ')}.</p>
   </div>{instance.mode === 'road' && result.drivers.some(driver => driver.route.length > 2 && (!driver.geometry?.length || driver.geometry_error)) && <p role="alert" className="notice">Road geometry unavailable for some drivers. Those paths are not drawn. Distances still use the road matrix; no straight-line road routes are substituted.</p>}</div>;
 }

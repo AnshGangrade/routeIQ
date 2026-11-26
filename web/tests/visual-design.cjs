@@ -26,27 +26,24 @@ test('home illustration is explicitly decorative and cannot be mistaken for rout
  assert.match(html,/Create route plan/);assert.match(html,/href="#lab"/);
  assert.doesNotMatch(html,/\d+\.\d+ km|% improvement|<input/);
 });
-test('driver colors remain consistent and distinct for the first ten drivers',()=>{
- assert.equal(new Set(Array.from({length:10},(_,i)=>driverColor(i))).size,10);
- assert.equal(driverColor(0),driverColor(10));assert.match(driverColor(-1),/^#[0-9a-f]{6}$/i);
+test('driver colors remain consistent and distinct for the all twenty supported drivers',()=>{
+ assert.equal(new Set(Array.from({length:20},(_,i)=>driverColor(i))).size,20);
+ assert.equal(driverColor(0),driverColor(20));assert.match(driverColor(-1),/^#[0-9a-f]{6}$/i);
 });
 
-test('map styles distinguish optimized selection, muted routes and historical baselines',()=>{
- for(const method of ['nearest_neighbor','2opt']) {
-  const style=mapRouteStyle(method,true);
-  assert.equal(style.color,'#151515');assert.equal(style.dashArray,'8 6');assert.equal(style.casing,false);
+test('driver colors survive selection and baseline patterns in map styles',()=>{
+ for (let id=0;id<20;id++) for (const method of ['nearest_neighbor','2opt','portfolio','vnd','vnd_ils','strategy','adaptive']) {
+  const selected=mapRouteStyle(method,true,id),other=mapRouteStyle(method,false,id);
+  assert.equal(selected.color,driverColor(id));assert.equal(other.color,selected.color);
+  assert.ok(selected.weight>other.weight);assert.ok(selected.opacity>other.opacity);
+  if(['nearest_neighbor','2opt'].includes(method))assert.equal(selected.dashArray,'8 6');
  }
- for(const method of ['portfolio','vnd','vnd_ils','strategy','evolved']) {
-  const selected=mapRouteStyle(method,true),other=mapRouteStyle(method,false);
-  assert.equal(selected.color,'#F3C63B');assert.equal(selected.casing,true);assert.equal(selected.dashArray,undefined);
-  assert.equal(other.color,'#151515');assert.ok(other.opacity<selected.opacity);assert.equal(other.casing,false);
- }
+ assert.ok(new Set(Array.from({length:20},(_,i)=>driverColor(i))).size===20);
 });
-
-test('new driver palette stays achromatic and chart nodes preserve readable source labels',()=>{
- for(let i=0;i<10;i++) { const rgb=driverColor(i).slice(1).match(/../g);assert.equal(new Set(rgb).size,1); }
+test('palette uses distinct muted colors and chart nodes preserve source labels',()=>{
+ for(let i=0;i<20;i++)assert.ok(new Set(driverColor(i).slice(1).match(/../g)).size>1);
  const html=el(Lineage,{records:[{strategy_id:'winner',generation:0,creation_method:'seed',parents:[]}],bestId:'winner',offline:true});
- assert.match(html,/fill="#F3C63B"/);assert.match(html,/Hand-authored/);
+ assert.match(html,/fill="#D9B65A"/);assert.match(html,/Hand-authored/);
 });
 test('chart statistics ignore failed, nonfinite and negative observations but retain zero',()=>{
  assert.deepEqual(finiteSeries([null,NaN,Infinity,-1,0,12]),{min:0,max:12,count:2});
@@ -97,9 +94,9 @@ test('candidate comparison handles a pending record before evaluation fields arr
 
 const {CompareScreen}=require('../src/components/CompareScreen.tsx');
 function quietComparison(rows) {
- return el(CompareScreen,{instance:{instance_id:'a',mode:'synthetic',num_stops:5,num_drivers:2,matrix_fingerprint:'m',problem_fingerprint:'p'},comparison:{instance_id:'a',matrix_fingerprint:'m',problem_fingerprint:'p',comparisons:rows},loading:false,error:null,busy:false,evolution:null,onRetry(){},onRun(){},onView(){}});
+ return el(CompareScreen,{instance:{instance_id:'a',mode:'synthetic',num_stops:5,num_drivers:2,distance_units:'map_units',matrix_fingerprint:'m',problem_fingerprint:'p'},comparison:{instance_id:'a',matrix_fingerprint:'m',problem_fingerprint:'p',comparisons:rows},loading:false,error:null,busy:false,evolution:null,onRetry(){},onRun(){},onView(){}});
 }
-const quietRow=(method,distance,status='completed')=>({method,total_distance:distance,longest_route_distance:distance,computation_time:.01,feasible:true,matrix_fingerprint:'m',problem_fingerprint:'p',execution:{status,termination:'budget_exhausted',operations:100}});
+const quietRow=(method,distance,status='completed')=>({method,total_distance:distance,longest_route_distance:distance,computation_time:.01,feasible:true,distance_units:'map_units',matrix_fingerprint:'m',problem_fingerprint:'p',execution:{status,termination:'budget_exhausted',operations:100}});
 test('Quiet Atlas highlights the shortest valid incomplete incumbent with honest status',()=>{
  const html=quietComparison([quietRow('nearest_neighbor',100,'incomplete'),quietRow('portfolio',80,'incomplete')]);
  const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));

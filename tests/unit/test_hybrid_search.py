@@ -277,7 +277,9 @@ def test_independent_operator_and_neighborhood_caps_are_reported():
     partial = solve_hybrid(p, config=SearchConfig(max_moves_per_operator=1, ils_iterations=0), time_limit_seconds=60)
     assert partial.neighborhoods_truncated > 0
     assert partial.termination_reason == 'neighborhood_limit'
-    assert partial.status == 'stopped' and partial.budget_exhausted
+    assert partial.status == 'stopped' and not partial.budget_exhausted
+    assert partial.execution_contract['neighborhoods_truncated'] > 0
+    assert partial.execution_contract['schema_version'] == 'fleet-search-status/v2'
 
 
 @pytest.mark.parametrize('kwargs', [dict(nn_attempts=17), dict(max_operator_calls=-1),

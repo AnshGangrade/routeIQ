@@ -99,6 +99,7 @@ def execute(job_id, request, resolved):
                 time_limit_seconds=request.seconds, should_cancel=cancel.is_set,**({'controller':controller} if controller else {}))
             measured = validate_fleet_solution(problem, outcome.final_solution.routes)
             execution = {
+                **outcome.execution_contract,
                 'status': 'failed' if outcome.errors or outcome.status == 'failed' else
                           'completed' if outcome.status == 'completed' else 'incomplete',
                 'termination': outcome.termination_reason, 'initial_distance': outcome.initial_solution.total_distance,

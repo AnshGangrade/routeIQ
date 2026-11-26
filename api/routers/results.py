@@ -5,8 +5,30 @@ from fastapi import APIRouter, HTTPException
 
 from api.models import ComparisonResponse, MethodComparison
 from api.storage import instance_store, routing_results
+import math
+from engine.routing.validation import validate_fleet_solution
 
 router = APIRouter()
+
+
+def verified(problem, result):
+    """Cached legacy measurements remain visible, but cannot establish savings."""
+    if problem is None or result is None:
+        return False
+    if (getattr(result,'feasible',None) is not True or getattr(result,"problem_fingerprint",None) != problem.fingerprint
+            or getattr(result,"matrix_fingerprint",None) != problem.matrix_fingerprint
+            or getattr(result,"distance_units",None) != problem.distance_units
+            or not math.isfinite(result.total_distance) or result.total_distance < 0
+            or (getattr(result,"execution",None) or {}).get('status') not in ('completed', 'incomplete')):
+        return False
+    try:
+        drivers=sorted(result.drivers,key=lambda d:d.driver_id)
+        if [d.driver_id for d in drivers] != list(range(problem.num_drivers)): return False
+        measured=validate_fleet_solution(problem,[d.route for d in drivers])
+        return (math.isclose(measured.total_distance,result.total_distance,rel_tol=1e-9,abs_tol=1e-9)
+                and all(math.isclose(a,b.distance,rel_tol=1e-9,abs_tol=1e-9) for a,b in zip(measured.route_distances,drivers)))
+    except (ValueError,TypeError,KeyError):
+        return False
 
 
 @router.get("/{instance_id}/comparison", response_model=ComparisonResponse)
@@ -37,12 +59,12 @@ async def get_comparison(instance_id: str):
                 raise HTTPException(409, "Cached routes do not match the selected problem matrix; recalculate")
             
             # Track NN distance for improvement calculation
-            if method == "nearest_neighbor":
+            if method == "nearest_neighbor" and verified(problem,result):
                 nn_distance = result.total_distance
             
             # Calculate improvement if NN result exists
             improvement = None
-            if nn_distance is not None and method != "nearest_neighbor":
+            if nn_distance is not None and method != "nearest_neighbor" and verified(problem,result):
                 if nn_distance > 0:
                     improvement = ((nn_distance - result.total_distance) / nn_distance) * 100
                 elif result.total_distance == 0:

@@ -40,8 +40,10 @@ def test_road_cache_namespaced_by_endpoint_and_https():
         assert a._cache_key([(1, 2)]) != a._cache_key([(2, 1)])
 
 
-@pytest.mark.parametrize('other,expected', [(0., 0.), (1., None)])
+@pytest.mark.parametrize('other,expected', [(0., None), (1., None)])
 def test_zero_distance_comparison(client, other, expected):
+    # Historical records lack matrix identity/validation; even a zero/zero tie
+    # cannot establish savings. Validated zero matrices are covered separately.
     instance = client.post('/api/instances', json={'num_stops': 5, 'num_drivers': 1}).json()['instance_id']
     for method, distance in [('nearest_neighbor', 0.), ('2opt', other)]:
         storage.routing_results[instance, method] = SimpleNamespace(total_distance=distance, longest_route_distance=distance, computation_time=0.)

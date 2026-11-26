@@ -1,3 +1,10 @@
+> Current contract (2026-11-26): the active product is the integrated planning
+> workspace and canonical FleetProblem with trusted construction/VND/ILS, declarative
+> strategy evolution and bounded native Ollama feedback (`qwen3:1.7b`). Historical
+> executable-code guidance below applies only to legacy APIs. Preserve research
+> records, independent validation, baseline definitions and split protection.
+> README.md and docs/product-quality-pass.md describe the current workflow.
+
 # RouteIQ Repository Structure
 
 ## Top Level

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, '../runs/phase6-verification/product-browser');
+const output = path.resolve(root, '../runs/product-quality-20261126/product-browser');
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
@@ -23,6 +23,13 @@ const requests = [], blocked = [], errors = [], checks = [];
 let cancelledInterceptions = 0;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 let acceptDialog = true;
+let comparisonOverride = null, archivedExperiment = null;
+function savedAdaptiveEvidence() {
+  const saved=JSON.parse(readFileSync(path.resolve(root,'../runs/product-quality-20261126/development/results.json'),'utf8'));
+  const row=saved.trials.find(r=>r.arm==='adaptive_llm' && r.controller?.decisions.some(d=>d.stage==='checkpoint' && d.accepted && d.execution?.schedule_changed));
+  assert.ok(row,'A saved live scheduling decision is required for this capture');
+  return row;
+}
 try {
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
@@ -52,7 +59,20 @@ try {
       const { requestId, request } = message.params;
       try {
         if (!request.url.startsWith(base + '/')) { blocked.push(request.url); await send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }); }
-        else { if (new URL(request.url).pathname.startsWith('/api/')) requests.push({pathname: new URL(request.url).pathname, body: request.postData ? JSON.parse(request.postData) : null}); await send('Fetch.continueRequest', { requestId }); }
+        else {
+          const pathname=new URL(request.url).pathname;
+          if (pathname==='/__quality/evidence') {
+            await send('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(savedAdaptiveEvidence())).toString('base64')});
+          } else if (comparisonOverride && pathname===`/api/results/${comparisonOverride.instance_id}/comparison`) {
+            await send('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(comparisonOverride)).toString('base64')});
+          } else if (archivedExperiment && pathname.startsWith('/api/strategy-experiments')) {
+            const data=pathname==='/api/strategy-experiments' ? {job_id:'archived-evidence',status:'pending'} : {...archivedExperiment,job_id:'archived-evidence'};
+            await send('Fetch.fulfillRequest',{requestId,responseCode:200,responseHeaders:[{name:'Content-Type',value:'application/json'}],body:Buffer.from(JSON.stringify(data)).toString('base64')});
+          } else {
+            if (pathname.startsWith('/api/')) requests.push({pathname, body:request.postData?JSON.parse(request.postData):null});
+            await send('Fetch.continueRequest', { requestId });
+          }
+        }
       } catch (error) {
         // Navigating away from a Leaflet map cancels pending tile requests;
         // Chromium can retire the interception before our block response lands.
@@ -86,8 +106,8 @@ try {
   const check = name => { checks.push(name); console.log('PASS ' + name); };
   const mapResized = `(() => {const map=document.querySelector('.road-map .leaflet-container');if(!map)return false;const svg=map.querySelector('.route-path')?.closest('svg');return !!svg && Number(svg.getAttribute('width'))>=map.clientWidth && Number(svg.getAttribute('width'))<=map.clientWidth*1.3+2 && Number(svg.getAttribute('height'))>=map.clientHeight && Number(svg.getAttribute('height'))<=map.clientHeight*1.3+2;})()`;
   const responsive = async name => {
-    assert.deepEqual(await evaluate(`(() => {const css=getComputedStyle(document.documentElement);return ['--background','--ink','--gold'].map(v=>css.getPropertyValue(v).trim());})()`),['#F7F6F1','#151515','#F3C63B']);
-    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.app-header')).backgroundColor`),'rgb(21, 21, 21)');
+    assert.deepEqual(await evaluate(`(() => {const css=getComputedStyle(document.documentElement);return ['--background','--ink','--gold'].map(v=>css.getPropertyValue(v).trim());})()`),['#F6F5F0','#191919','#D9B65A']);
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector('.app-header')).backgroundColor`),'rgb(25, 25, 25)');
     for (const [width,height] of [[1440,900],[1024,768],[768,900],[390,844]]) {
       await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false}); await delay(100);
       if(name==='road-routes')await waitFor(mapResized);
@@ -130,14 +150,14 @@ try {
   };
   assert.equal((await json('/api/health')).status,'ok'); check('Actual backend health and Vite proxy respond');
   await send('Page.navigate', {url:base});
-  await waitFor(`document.querySelector('h1')?.textContent.includes('clearer path')`);
+  await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
   // Vite may reload once after its initial dependency optimization.
-  await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`document.querySelector('h1')?.textContent.includes('clearer path')`);
+  await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
   await screenshot('01-home'); await responsive('home'); check('Beginner home renders without configuration');
-  assert.deepEqual(await evaluate(`(() => {const s=getComputedStyle(document.querySelector('.button.primary'));return [s.backgroundColor,s.color];})()`),['rgb(243, 198, 59)','rgb(21, 21, 21)']);
+  assert.deepEqual(await evaluate(`(() => {const s=getComputedStyle(document.querySelector('.button.primary'));return [s.backgroundColor,s.color];})()`),['rgb(217, 182, 90)','rgb(25, 25, 25)']);
   const contrast=(a,b)=>{const luminance=rgb=>rgb.map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);return (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);};
-  assert.ok(contrast([21,21,21],[243,198,59])>=4.5);
-  assert.ok(contrast([104,104,104],[247,246,241])>=4.5);
+  assert.ok(contrast([25,25,25],[217,182,90])>=4.5);
+  assert.ok(contrast([109,109,105],[246,245,240])>=4.5);
   check('Global tokens and primary controls use charcoal/gold with readable text contrast');
   await click('Create route plan');
   await fill(labelInput('Delivery stops'),5); await click('Reproducibility options','summary'); await fillLabel('Random seed',0);
@@ -170,6 +190,10 @@ try {
   await screenshot('03-routes'); await responsive('routes'); check('All three hybrid methods run through the real API on the same matrix');
   await evaluate(`document.querySelector('.driver-select[aria-pressed="true"]')?.click();document.querySelector('.workspace-results').scrollIntoView({block:'start'})`);
   await screenshot('delivery-02-optimized-multi-driver');
+  const syntheticIdentity=await evaluate(`(() => {const palette=['#426582','#39736d','#65774b','#a5634d','#78648c'];const svg=document.querySelector('.map-panel svg[role="img"]');return {routeColors:[...new Set([...svg.querySelectorAll('line')].map(l=>l.getAttribute('stroke')).filter(c=>c!=='#191919'))].sort(),markerColors:[...svg.querySelectorAll('g[role="button"]>circle')].map(c=>c.getAttribute('fill')).sort(),expected:palette.sort()};})()`);
+  assert.deepEqual(syntheticIdentity.routeColors,syntheticIdentity.expected);
+  assert.deepEqual(syntheticIdentity.markerColors,syntheticIdentity.expected);
+  check('Each synthetic driver retains one distinct color across its route and stop markers');
   await evaluate(`document.querySelector('.driver-select').click();document.querySelector('.driver-panel').scrollIntoView({block:'start'})`);
   await waitFor(`document.querySelectorAll('.driver-itinerary').length===1`);
   await screenshot('delivery-03-expanded-itinerary');
@@ -195,7 +219,7 @@ try {
   assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').length,beforePreset+1);
   assert.equal(requests.filter(r=>r.pathname==='/api/optimization/jobs').at(-1).body.method,'portfolio');
   check('One-click comparison ignores repeated clicks and survives navigation with one scoped portfolio job');
-  assert.match(await evaluate(`document.querySelector('.best-measured').textContent`),/Shortest validated route found.*Baseline: Nearest Neighbor/);
+  assert.match(await evaluate(`document.querySelector('.best-measured').textContent`),/Best completed route.*Baseline: Nearest Neighbor/);
   assert.equal(await evaluate(`document.querySelector('.comparison-diagnostics').open`),false);
   await screenshot('04-comparison');await screenshot('delivery-04-compare'); await responsive('compare'); check('Comparison includes actual work, feasibility and termination for measured methods');
   await click('Strategy Experiments','nav a');
@@ -233,7 +257,7 @@ try {
   await screenshot('05-strategy-lab');await screenshot('delivery-05-strategy-experiments'); await responsive('lab'); check('Real Phase 6 hand control evaluates, exposes history and survives navigation');
   await evaluate(`document.querySelector('[aria-label="Strategy experiment progress"]').scrollIntoView({block:'start'})`);
   await screenshot('05b-strategy-evidence', false);
-  await click('Apply strategy to current plan'); await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
+  await click(await evaluate(`document.querySelector('.winner-card button').textContent.trim()`)); await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
   const first = await latestJob(); const firstApplied=first.comparison.comparisons.find(r=>r.method==='strategy');
   assert.equal(firstApplied.feasible,true); assert.ok(firstApplied.execution.strategy_fingerprint);
   check('Validated strategy recomputes an actual current-plan result');
@@ -271,7 +295,7 @@ try {
   assert.notEqual(await evaluate(`document.querySelector('.map-panel select').value`),'vnd_ils');
   check('Real optimization cancellation preserves the previous selected routes');
   await fillLabel('Operation limit',0); await fillLabel('Solver time limit (seconds)',0);
-  await click('Strategy Experiments','nav a'); await click('Apply strategy to current plan');
+  await click('Strategy Experiments','nav a'); await click(await evaluate(`document.querySelector('.winner-card button').textContent.trim()`));
   await waitFor(`document.querySelector('.map-panel select')?.value==='strategy'`);
   const second=await latestJob(); const secondApplied=second.comparison.comparisons.find(r=>r.method==='strategy');
   assert.notEqual(second.id,first.id); assert.notEqual(secondApplied.matrix_fingerprint,firstApplied.matrix_fingerprint);
@@ -311,7 +335,8 @@ try {
   check('Map color and fit controls preserve actual placed locations');
   await evaluate(`document.querySelector('[aria-label="Focus delivery stop 2"]').click()`);
   await waitFor(`document.querySelector('[title="Delivery stop 2"]').classList.contains('focused-stop')`);
-  assert.deepEqual(await evaluate(`(() => {const s=getComputedStyle(document.querySelector('[title="Delivery stop 2"] span'));return [s.backgroundColor,s.color];})()`),['rgb(21, 21, 21)','rgb(243, 198, 59)']);
+  assert.deepEqual(await evaluate(`(() => {const s=getComputedStyle(document.querySelector('[title="Delivery stop 2"] span'));return [s.backgroundColor,s.color];})()`),['rgb(148, 113, 45)','rgb(255, 255, 255)']);
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('[title="Delivery stop 2"] span')).outlineWidth`),'3px');
   await evaluate(`document.querySelector('[title="Delivery stop 3"]').click()`);
   await waitFor(`document.querySelector('[data-stop="3"]').classList.contains('selected')`);
   await fill('#lon-2',20.008);await fill('#lat-2',10.008);
@@ -382,17 +407,17 @@ try {
   await click('Optimize Routes');
   await waitFor(`document.querySelector('.map-panel select')?.value==='vnd' && !!document.querySelector('.road-map .route-casing')`);
   const paths=await evaluate(`(() => {const casing=document.querySelector('.road-map .route-casing'),route=document.querySelector('.road-map .route-path');return {casing:casing.getAttribute('d'),route:route.getAttribute('d'),colors:[casing.getAttribute('stroke'),route.getAttribute('stroke')],interactive:casing.classList.contains('leaflet-interactive')};})()`);
-  assert.equal(paths.casing,paths.route);assert.deepEqual(paths.colors,['#151515','#F3C63B']);assert.equal(paths.interactive,false);
+  assert.equal(paths.casing,paths.route);assert.deepEqual(paths.colors,['#191919','#39736d']);assert.equal(paths.interactive,false);
   assert.equal(await evaluate(`document.querySelectorAll('.road-map .route-path').length`),1);
   await evaluate(`document.querySelectorAll('.driver-select')[0].click()`);
-  await waitFor(`document.querySelector('.road-map .route-path')?.getAttribute('stroke-opacity')==='0.35'`);
+  await waitFor(`document.querySelector('.road-map .route-path')?.getAttribute('stroke-opacity')==='0.65'`);
   assert.equal(await evaluate(`!!document.querySelector('.road-map .route-casing')`),false);
   await evaluate(`document.querySelectorAll('.driver-select')[1].click()`);
   await waitFor(`!!document.querySelector('.road-map .route-casing')`);
   const layers=await evaluate(`(() => {const casing=document.querySelector('.road-map .route-casing'),route=document.querySelector('.road-map .route-path');return {same:casing.getAttribute('d')===route.getAttribute('d'),color:route.getAttribute('stroke'),lower:Number(getComputedStyle(casing.closest('.leaflet-pane')).zIndex),upper:Number(getComputedStyle(route.closest('.leaflet-pane')).zIndex)};})()`);
-  assert.equal(layers.same,true);assert.equal(layers.color,'#F3C63B');assert.ok(layers.upper>layers.lower,'Gold must stay above its casing after reselecting a driver');
-  await screenshot('11-gold-road-geometry');
-  check('Gold overlay and charcoal casing share exact road geometry; other drivers remain muted and missing geometry stays absent');
+  assert.equal(layers.same,true);assert.equal(layers.color,'#39736d');assert.ok(layers.upper>layers.lower,'Driver color must stay above its casing after reselecting a driver');
+  await screenshot('11-driver-road-geometry');
+  check('Driver overlay and charcoal casing share exact road geometry; other drivers remain muted and missing geometry stays absent');
 
   await click('Strategy Experiments','nav a'); await fillLabel('Search control','llm'); await fillLabel('Generations',2);
   assert.equal(await evaluate(`document.querySelector('[aria-label="Strategy Experiments"] select')?.value`),'llm');
@@ -403,6 +428,8 @@ try {
   assert.match(await evaluate(`document.querySelector('[aria-label="Strategy Experiments"]').textContent`),/Offline fixture \(not an LLM\)/);
   assert.match(await evaluate(`document.querySelector('[aria-label="Strategy Experiments"]').textContent`),/Mutation|Crossover/);
   check('Offline proposal fixtures and deterministic offspring are labeled separately from live LLM reasoning');
+  await evaluate(`document.querySelector('.strategy-progress').scrollIntoView({block:'start'})`);
+  await screenshot('17-no-live-proposals',false);
   await evaluate(`document.querySelector('.research-details').open=true; document.querySelector('.lineage-panel').open=true; document.querySelector('.candidate-comparison').open=true; document.querySelector('.research-observatory').scrollIntoView({block:'start'})`);
   assert.ok(await evaluate(`document.querySelectorAll('.lineage-scroll svg path').length>0`));
   assert.ok(await evaluate(`document.querySelectorAll('.candidate-comparison tbody tr').length>0`));
@@ -425,6 +452,45 @@ try {
   assert.match(await evaluate(`document.querySelector('.controller-evidence').textContent`),/offline fixture/);
   await screenshot('13-adaptive-offline-evidence');
   check('Actual adaptive solver recomputes this plan and exposes bounded feedback with explicit offline proposal attribution');
+
+  // Real measured incumbents, with completed records intentionally absent in this
+  // explicitly labeled response scenario. No route metrics/status are fabricated.
+  const selectedInstance=(await latestJob()).id;
+  const boundedJob=await json('/api/optimization/jobs',{instance_id:selectedInstance,method:'vnd',operations:0,seconds:10,search_seed:0});
+  let boundedState=boundedJob;
+  for(let i=0;i<100 && ['pending','running'].includes(boundedState.status);i++) {await delay(50);boundedState=await json(`/api/optimization/jobs/${boundedJob.job_id}`);}
+  assert.equal(boundedState.status,'incomplete');assert.equal(boundedState.result.feasible,true);
+  const measuredComparison=(await latestJob()).comparison;
+  comparisonOverride={...measuredComparison,comparisons:measuredComparison.comparisons.filter(r=>r.execution?.status==='incomplete')};
+  assert.ok(comparisonOverride.comparisons.length);
+  await click('Compare','nav a');
+  await waitFor(`document.querySelector('.best-measured')?.textContent.includes('Best incomplete route')`);
+  await evaluate(`document.querySelector('.compare-screen').insertAdjacentHTML('afterbegin','<p class="notice">Verification scenario: completed records unavailable; displayed distances are actual local solver measurements.</p>')`);
+  await screenshot('14-compare-incomplete-only');
+  check('Only incomplete measured routes remain visible with an unmistakable fallback recommendation');
+  comparisonOverride=null;
+
+  const archivedPath=path.resolve(root,'../runs/product-quality-20261126/archived-live-evidence.json');
+  if(existsSync(archivedPath)) {
+    const archive=JSON.parse(readFileSync(archivedPath,'utf8'));
+    archivedExperiment=archive.state;
+    assert.equal(archivedExperiment.manifest.provider_mode,'ollama');assert.ok(archive.validated_rows>0);
+    await click('Strategy Experiments','nav a');await click('Run experiment');
+    await waitFor(`document.querySelector('.strategy-progress')?.textContent.includes('accepted live LLM proposals') && !document.querySelector('.strategy-progress').textContent.includes('0 accepted live LLM proposals')`);
+    await evaluate(`document.querySelector('.strategy-progress').insertAdjacentHTML('afterbegin','<p class="notice">Archived real Ollama development experiment · audited saved measurements · no new model requests in this browser capture.</p>'); document.querySelector('.strategy-progress').scrollIntoView({block:'start'})`);
+    await screenshot('15-archived-live-proposals',false);
+    check('Audited archived live proposals are distinguishable from offline fixtures and current inference');
+  } else console.log('Archived live proposal capture unavailable: no audited local artifact supplied.');
+
+  if(existsSync(path.resolve(root,'../runs/product-quality-20261126/development/results.json'))) {
+    await evaluate(`import('/tests/quality-evidence.tsx')`);
+    await waitFor(`!!document.querySelector('body>div:last-child .controller-evidence')`);
+    await evaluate(`document.querySelector('body>div:last-child .controller-evidence').open=true;document.querySelector('body>div:last-child .controller-evidence').scrollIntoView({block:'start'})`);
+    assert.match(await evaluate(`document.querySelector('body>div:last-child').textContent`),/LLM proposal/);
+    await evaluate(`(() => {const host=document.querySelector('body>div:last-child'); const notice=host.querySelector('.notice');Object.assign(notice.style,{position:'fixed',top:'8px',left:'20px',right:'20px',zIndex:'9999',background:'white'});const section=[...host.querySelectorAll('.controller-evidence>section')].find(s=>s.textContent.includes('"action": "reorder"'));if(!section)throw Error('Saved schedule change missing');section.scrollIntoView({block:'start'});window.scrollBy(0,-100);})()`);
+    await screenshot('16-live-adaptive-decisions',false);
+    check('Saved real adaptive scheduling decisions render with source, work, and explicit read-only provenance');
+  } else console.log('Live adaptive capture unavailable: no saved live development experiment.');
   // Both historical entry URLs must mount the same integrated workspace on a fresh load.
   for(const hash of ['setup','routes']) {
     await send('Page.navigate',{url:base+'/#'+hash});

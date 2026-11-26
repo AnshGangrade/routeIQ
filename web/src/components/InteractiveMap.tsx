@@ -87,7 +87,7 @@ export function InteractiveMap({
         >
           <Popup>
             <div className="text-sm">
-              <strong className="text-[#151515]">Depot</strong>
+              <strong className="text-[#191919]">Depot</strong>
               <br />
               Lat: {depotLat.toFixed(6)}
               <br />
@@ -109,7 +109,7 @@ export function InteractiveMap({
             )
           );
           
-          const color = driver ? driverColor(driver.driver_id) : '#686868';
+          const color = driver ? driverColor(driver.driver_id) : '#6D6D69';
           const isSelected = driver && (selectedDriverId === null || selectedDriverId === driver.driver_id);
           
           return (
@@ -147,16 +147,16 @@ export function InteractiveMap({
         {/* Route Polylines - use OSRM geometry if available */}
         <Pane name="route-casings" style={{zIndex:410,pointerEvents:'none'}}>
           {routingResult?.drivers.map(driver => {
-            const style=mapRouteStyle(routingResult.method,selectedDriverId===null || selectedDriverId===driver.driver_id);
+            const style=mapRouteStyle(routingResult.method,selectedDriverId===null || selectedDriverId===driver.driver_id,driver.driver_id);
             if(!style.casing || !driver.geometry || driver.geometry.length<2 || driver.geometry_error)return null;
-            return <Polyline key={driver.driver_id} positions={driver.geometry.map(coord=>[coord[0],coord[1]])} pathOptions={{color:'#151515',weight:7,opacity:1,className:'route-casing'}} interactive={false}/>;
+            return <Polyline key={driver.driver_id} positions={driver.geometry.map(coord=>[coord[0],coord[1]])} pathOptions={{color:'#191919',weight:7,opacity:1,className:'route-casing'}} interactive={false}/>;
           })}
         </Pane>
         <Pane name="route-strokes" style={{zIndex:420}}>
         {routingResult && routingResult.drivers.map(driver => {
           const driverInfo = instance.drivers.find(d => d.driver_id === driver.driver_id);
           const isSelected = selectedDriverId === null || selectedDriverId === driver.driver_id;
-          const style = mapRouteStyle(routingResult.method,isSelected);
+          const style = mapRouteStyle(routingResult.method,isSelected,driver.driver_id);
 
           // Missing geometry stays missing: never draw straight-line road routes.
           if (!driver.geometry || driver.geometry.length < 2 || driver.geometry_error) return null;
@@ -193,7 +193,7 @@ export function InteractiveMap({
                   <br />
                   Stops: {driver.route.filter(id => id !== 0).length}
                   <br />
-                  <span className="text-xs text-[#686868]">
+                  <span className="text-xs text-[#6D6D69]">
                     {routingStatus}
                   </span>
                 </div>

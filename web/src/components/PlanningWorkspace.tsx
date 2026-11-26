@@ -83,7 +83,7 @@ export function PlanningWorkspace(p: Props) {
     <button className="planning-toggle button secondary" aria-expanded={expanded} aria-controls="planning-column" onClick={()=>setExpanded(v=>!v)}>{expanded?'Hide planning panel':'Show planning panel'}</button>
     <aside id="planning-column" className="planning-column" aria-label="Planning controls and delivery stops">
       <div className="planning-scroll">
-        <header><p className="eyebrow">Delivery planning</p><h1>Route Plan</h1><p className="small muted">Set your deliveries. See the same plan on the map.</p></header>
+        <header><h1>Route Plan</h1></header>
         {p.stale && <p className="notice" role="status">Draft changed. Previous routes are stale and hidden. Generate Plan to calculate these changes.</p>}
         <fieldset disabled={p.busy} className="plan-settings">
           <legend>Plan settings</legend>

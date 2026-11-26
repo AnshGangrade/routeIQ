@@ -35,9 +35,11 @@ test('provider checks require exact model, coherent status and valid payload',()
 });
 const record=(source,parents=[],eligible=true)=>({creation_method:source,parents,fitness:{eligible,mean_distance:10,completed:1,incomplete:1,failed:0}});
 test('evidence counts missing and attributes live evaluated ancestry, not fixtures or fallback',()=>{
-  const state={manifest:{provider_mode:'ollama'},reserved_evaluations:8,best_id:'child',records:{seed:record('seed'),llm:record('llm'),child:record('mutation',['llm'])}};
+  const state={manifest:{provider_mode:'ollama',config:{case_ids:['a','b']}},proposal_events:[{source:'llm',outcome:'accepted',strategy_id:'llm'}],reserved_evaluations:8,best_id:'child',records:{seed:record('seed'),llm:record('llm'),child:record('mutation',['llm'])}};
+  Object.assign(state.records.llm,{strategy_id:'llm',evaluation_history:[{rows:[{case_id:'a',status:'completed',feasible:true},{case_id:'b',status:'incomplete',feasible:true}]}]});
   assert.deepEqual(experimentEvidence(state),{completed:3,incomplete:3,failed:0,missing:2,acceptedLLM:1,evaluatedLLM:1,winnerLLM:true});
   assert.equal(experimentEvidence({...state,best_id:'seed'}).winnerLLM,false);
+  assert.equal(experimentEvidence(state,'seed').winnerLLM,false,'Attribution follows the displayed completed recommendation, not the historical bounded winner');
   assert.equal(experimentEvidence({...state,manifest:{provider_mode:'offline'}}).acceptedLLM,0);
   assert.equal(experimentEvidence({...state,manifest:{provider_mode:'offline'}}).winnerLLM,false);
   state.records.llm.fitness.eligible=false;
@@ -52,4 +54,17 @@ test('random comparison rejects unmatched inputs, running jobs and offline propo
   assert.equal(matchedRandom({...state,manifest:{...state.manifest,provider_mode:'offline'}},[random]),null);
   random.manifest.config.seed=1;assert.equal(matchedRandom(state,[random]),null);
   random.manifest.config.seed=0;random.manifest.panel=[2];assert.equal(matchedRandom(state,[random]),null);
+});
+
+const {candidateRecommendation,completedCandidate}=require('../src/services/experiments.ts');
+test('candidate recommendation prefers a complete panel and labels bounded fallback',()=>{
+ const make=(strategy_id,distance,complete)=>({strategy_id,fitness:{eligible:true,mean_distance:distance,cases:2,expected_cases:2,completed:complete?2:0,incomplete:complete?0:2,failed:0}});
+ const a=make('a',10,false),b=make('b',20,true);
+ assert.equal(candidateRecommendation({records:{a,b}}),b);
+ assert.equal(candidateRecommendation({records:{a}}),a);assert.equal(completedCandidate(a),false);
+ assert.equal(candidateRecommendation({records:{a:{...a,fitness:{...a.fitness,eligible:false}}}}),null);
+});
+test('a live-tagged configuration without an evaluated accepted proposal is not LLM evidence',()=>{
+ const state={manifest:{provider_mode:'ollama',config:{case_ids:['a']}},records:{a:{strategy_id:'a',...record('llm')}},best_id:'a'};
+ assert.equal(experimentEvidence(state).acceptedLLM,0);assert.equal(experimentEvidence(state).winnerLLM,false);
 });
