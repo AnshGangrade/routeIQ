@@ -162,9 +162,18 @@ def test_supported_workload_and_invalid_constraints():
 
 
 def test_strategy_recomputed_on_each_selected_instance_and_scoped(monkeypatch):
-    strategy=StrategyRecord(strategy_id='winner',generation=0,creation_method='seed',config=StrategyConfig(),
-        fitness={'eligible':True,'mean_distance':123456},evaluation_history=({'rows':[]},))
-    monkeypatch.setattr(strategies,'snapshot',lambda job: {'status':'completed','records':{'winner':strategy.model_dump(mode='json')}})
+    from engine.strategies.product import product_config, product_seeds
+    from engine.strategies.evaluation import development_panel, evaluate_one, fitness
+    config=product_config().model_copy(update={'proposal_policy':'historical_mixed'})
+    chosen=product_seeds()[0]
+    rows=[]
+    for case_id,problem in development_panel(config):
+        row=evaluate_one(problem,chosen,config);row['case_id']=case_id;rows.append(row)
+    strategy=StrategyRecord(strategy_id='winner',generation=0,creation_method='seed',config=chosen,
+        fitness=fitness(rows,len(rows)),evaluation_history=({'rows':rows},))
+    assert strategy.fitness['eligible']
+    monkeypatch.setattr(strategies,'snapshot',lambda job: {'status':'completed',
+        'manifest':{'config':config.model_dump(mode='json')},'records':{'winner':strategy.model_dump(mode='json')}})
     with TestClient(app) as client:
         plans=[instance(client,5,2),instance(client,9,3)]
         for plan in plans:
@@ -172,7 +181,8 @@ def test_strategy_recomputed_on_each_selected_instance_and_scoped(monkeypatch):
                 'strategy_job_id':'job','strategy_id':'winner'}).json()
             job=client.get('/api/optimization/jobs/'+item['job_id']).json()
             assert_measured(plan,job['result'])
-            assert job['result']['total_distance'] != 123456
+            assert job['status']=='completed'
+            assert job['result']['total_distance'] != strategy.fitness['mean_distance']
             assert job['execution']['strategy_fingerprint']==strategy.configuration_fingerprint
         assert client.post('/api/optimization/jobs',json={'instance_id':plans[0]['instance_id'],'method':'strategy',
             'strategy_job_id':'job','strategy_id':'other'}).status_code==404

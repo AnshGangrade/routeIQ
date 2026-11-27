@@ -302,7 +302,7 @@ class _Search:
 
 def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
                  search_seed=None, operation_budget=100_000, time_limit_seconds=10.0,
-                 should_cancel=None, clock=time.monotonic, controller=None):
+                 should_cancel=None, clock=time.monotonic, controller=None, search_scope='all_constructions'):
     """Return a validated incumbent plus honest raw results and termination metadata.
 
     Search work is bounded by candidate evaluations and call/iteration caps.
@@ -374,12 +374,14 @@ def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
             candidates.append(CandidateReport(method, "failed", detail=type(exc).__name__))
             search.errors.append(f"{method}: {type(exc).__name__}")
     initial = search.best
-    # Improve each distinct constructed plan, shortest first, retaining all global gains.
+    # The explicit product schedule refines the best construction only. Historical
+    # research still refines every distinct construction; neither schedule skips baselines.
     if controller is not None:
         search.adaptive(controller,choice.operation_slice)
     else:
         seen = set()
-        for candidate in sorted((c.plan for c in candidates if c.plan), key=lambda p: p.total_distance):
+        plans = [initial] if search_scope == 'best_construction' else sorted((c.plan for c in candidates if c.plan), key=lambda p: p.total_distance)
+        for candidate in plans:
             if candidate.routes in seen:
                 continue
             seen.add(candidate.routes)
@@ -409,11 +411,14 @@ def _solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
 
 def solve_hybrid(problem, *, construction_strategy="portfolio", config=None,
                  search_seed=None, operation_budget=100_000, time_limit_seconds=10.0,
-                 should_cancel=None, clock=time.monotonic, controller: StrategyController | None=None):
+                 should_cancel=None, clock=time.monotonic, controller: StrategyController | None=None,
+                 search_scope='all_constructions'):
+    if search_scope not in ('all_constructions', 'best_construction'):
+        raise ValueError('Unknown construction search schedule')
     try:
         result=_solve_hybrid(problem,construction_strategy=construction_strategy,config=config,search_seed=search_seed,
             operation_budget=operation_budget,time_limit_seconds=time_limit_seconds,should_cancel=should_cancel,
-            clock=clock,controller=controller)
+            clock=clock,controller=controller,search_scope=search_scope)
         if controller is not None and hasattr(controller,'verify_result'): controller.verify_result(result)
         return result
     finally:

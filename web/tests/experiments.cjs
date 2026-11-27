@@ -20,10 +20,10 @@ test('provider checks keep a deadline as well as caller cancellation',async t=>{
 
 test('single experiment page explains measured strategies and has no legacy tabs',()=>{
   const html=renderToStaticMarkup(React.createElement(StrategyLab,{hasInstance:false,applying:false,onApply(){},onStatus(){}}));
-  assert.match(html,/<h1>Strategy Experiments<\/h1>/);
-  assert.match(html,/The LLM proposes strategy configurations. It does not calculate routes or guarantee an optimal solution./);
+  assert.match(html,/<h1>AI-guided strategy<\/h1>/);
+  assert.match(html,/The LLM proposes strategy configurations. The trusted routing engine evaluates them. It does not guarantee an optimal solution./);
   assert.doesNotMatch(html,/Legacy heuristic lab|role="tab"|Evolution Lab/);
-  assert.match(html,/Random baseline/);assert.match(html,/AI-guided/);assert.match(html,/Run experiment/);
+  assert.doesNotMatch(html,/Random baseline|Offline fixture|<select/);assert.match(html,/Run evolution/);
 });
 test('provider checks require exact model, coherent status and valid payload',()=>{
   const available={configured:true,reachable:true,available:true,model:'qwen3:1.7b',status:'available',message:'Ready'};
@@ -33,11 +33,11 @@ test('provider checks require exact model, coherent status and valid payload',()
   assert.ok(!validProviderCheck({...available,message:null},available.model));
   assert.ok(!validProviderCheck({},available.model));
 });
-const record=(source,parents=[],eligible=true)=>({creation_method:source,parents,fitness:{eligible,mean_distance:10,completed:1,incomplete:1,failed:0}});
+const record=(source,parents=[],eligible=true)=>({creation_method:source,parents,fitness:{eligible,mean_distance:10,completed:2,incomplete:0,failed:0,cases:2,expected_cases:2,policy:'completed_panel/v1'}});
 test('evidence counts missing and attributes live evaluated ancestry, not fixtures or fallback',()=>{
   const state={manifest:{provider_mode:'ollama',config:{case_ids:['a','b']}},proposal_events:[{source:'llm',outcome:'accepted',strategy_id:'llm'}],reserved_evaluations:8,best_id:'child',records:{seed:record('seed'),llm:record('llm'),child:record('mutation',['llm'])}};
-  Object.assign(state.records.llm,{strategy_id:'llm',evaluation_history:[{rows:[{case_id:'a',status:'completed',feasible:true},{case_id:'b',status:'incomplete',feasible:true}]}]});
-  assert.deepEqual(experimentEvidence(state),{completed:3,incomplete:3,failed:0,missing:2,acceptedLLM:1,evaluatedLLM:1,winnerLLM:true});
+  Object.assign(state.records.llm,{strategy_id:'llm',evaluation_history:[{rows:[{case_id:'a',status:'completed',feasible:true,independently_validated:true,termination:'local_search_complete'},{case_id:'b',status:'completed',feasible:true,independently_validated:true,termination:'local_search_complete'}]}]});
+  assert.deepEqual(experimentEvidence(state),{completed:6,incomplete:0,failed:0,missing:2,acceptedLLM:1,evaluatedLLM:1,winnerLLM:true});
   assert.equal(experimentEvidence({...state,best_id:'seed'}).winnerLLM,false);
   assert.equal(experimentEvidence(state,'seed').winnerLLM,false,'Attribution follows the displayed completed recommendation, not the historical bounded winner');
   assert.equal(experimentEvidence({...state,manifest:{provider_mode:'offline'}}).acceptedLLM,0);
@@ -57,14 +57,37 @@ test('random comparison rejects unmatched inputs, running jobs and offline propo
 });
 
 const {candidateRecommendation,completedCandidate}=require('../src/services/experiments.ts');
-test('candidate recommendation prefers a complete panel and labels bounded fallback',()=>{
- const make=(strategy_id,distance,complete)=>({strategy_id,fitness:{eligible:true,mean_distance:distance,cases:2,expected_cases:2,completed:complete?2:0,incomplete:complete?0:2,failed:0}});
+test('candidate recommendation prefers a complete panel and never falls back to an incomplete candidate',()=>{
+ const make=(strategy_id,distance,complete)=>({strategy_id,fitness:{eligible:true,policy:'completed_panel/v1',mean_distance:distance,cases:2,expected_cases:2,completed:complete?2:0,incomplete:complete?0:2,failed:0}});
  const a=make('a',10,false),b=make('b',20,true);
  assert.equal(candidateRecommendation({records:{a,b}}),b);
- assert.equal(candidateRecommendation({records:{a}}),a);assert.equal(completedCandidate(a),false);
+ assert.equal(candidateRecommendation({records:{a}}),null);assert.equal(completedCandidate(a),false);
  assert.equal(candidateRecommendation({records:{a:{...a,fitness:{...a.fitness,eligible:false}}}}),null);
 });
 test('a live-tagged configuration without an evaluated accepted proposal is not LLM evidence',()=>{
  const state={manifest:{provider_mode:'ollama',config:{case_ids:['a']}},records:{a:{strategy_id:'a',...record('llm')}},best_id:'a'};
  assert.equal(experimentEvidence(state).acceptedLLM,0);assert.equal(experimentEvidence(state).winnerLLM,false);
+});
+
+
+test('accepted proposals and successfully evaluated proposals are distinct counts',()=>{
+ const complete={strategy_id:'llm',...record('llm'),evaluation_history:[{rows:['a','b'].map(case_id=>({case_id,status:'completed',feasible:true,independently_validated:true,termination:'local_search_complete'}))}]};
+ const state={manifest:{provider_mode:'ollama',config:{case_ids:['a','b'],proposal_policy:'llm_only'}},records:{llm:complete},proposal_events:[{source:'llm',outcome:'accepted',strategy_id:'llm'}],best_id:'llm'};
+ assert.equal(experimentEvidence(state).acceptedLLM,1);assert.equal(experimentEvidence(state).evaluatedLLM,1);
+ assert.equal(candidateRecommendation(state),complete);
+ complete.evaluation_history[0].rows[1].status='incomplete';complete.fitness.incomplete=1;complete.fitness.completed=1;complete.fitness.eligible=false;
+ assert.equal(experimentEvidence(state).acceptedLLM,1);assert.equal(experimentEvidence(state).evaluatedLLM,0);
+ assert.equal(candidateRecommendation(state),null);
+});
+
+test('only complete validated strategy applications can replace the current result',()=>{
+ const {completedOptimizationResult}=require('../src/services/product.ts');
+ const instance={instance_id:'p',problem_fingerprint:'fp',matrix_fingerprint:'m',distance_units:'map_units',num_stops:1,num_drivers:1,stops:[{stop_id:1}]};
+ const result={...instance,method:'strategy',feasible:true,total_distance:4,longest_route_distance:4,drivers:[{driver_id:0,route:[0,1,0],distance:4}],execution:{status:'completed',termination:'local_search_complete',schedule_completed:true,route_validity:'validated',independently_validated:true}};
+ const job={...instance,method:'strategy',status:'completed',result};
+ assert.equal(completedOptimizationResult(instance,job),result);
+ for(const status of ['incomplete','cancelled','failed'])assert.equal(completedOptimizationResult(instance,{...job,status}),null);
+ for(const change of [{matrix_fingerprint:'wrong'},{total_distance:3},{longest_route_distance:3},{feasible:false},{execution:{...result.execution,termination:'operation_budget'}},{execution:{...result.execution,independently_validated:false}}])
+  assert.throws(()=>completedOptimizationResult(instance,{...job,result:{...result,...change}}));
+ assert.equal(completedOptimizationResult(instance,{...job,published:false}),null);
 });

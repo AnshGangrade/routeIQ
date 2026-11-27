@@ -38,10 +38,11 @@ full reload does not provide durable draft storage.
 - **Compare:** independently validated results on the same problem/matrix/units.
   A completed route is the dependable recommendation. Shorter incomplete incumbents
   remain visible alternatives. Savings name the historical Nearest Neighbor baseline.
-- **Strategy Experiments:** fixed-configuration development search, population history,
-  separate completed and bounded rankings, precise proposal ancestry, and independent
-  testing of a candidate on the current plan. Development mean distance is in map
-  units and is never a current road-plan result.
+- **Evolution:** one AI-guided strategy workflow using local Ollama. Two trusted seeds
+  precede bounded LLM proposals. Only a fully completed, independently validated
+  development panel can produce an applicable strategy. Apply recomputes routes on
+  the current plan; an incomplete attempt retains the previous completed route.
+  Development mean distance is never the distance of the current road plan.
 
 Synthetic mode uses Cartesian coordinates and Euclidean map units. Real-road mode
 uses geographical coordinates, an OSRM distance table (meters), then separate OSRM
@@ -66,8 +67,8 @@ ollama serve
 ```
 
 `pull` downloads model weights; do not run it for offline verification. If Ollama is
-already running, a second `serve` is unnecessary. Select the exact `qwen3:1.7b` model
-in the UI. The provider uses native Ollama structured JSON; it does not silently
+already running, a second `serve` is unnecessary. Evolution uses `qwen3:1.7b` by default.
+The provider uses native Ollama structured JSON; it does not silently
 substitute a model. Inference stays local, but latency and hardware requirements
 vary. The model proposes supported configurations/actions, never executable code.
 
@@ -80,7 +81,9 @@ Development-only experience may be imported; held-out outcomes never enter promp
 
 ## Research and verification
 
-See [quality-pass report](docs/product-quality-pass.md) for exact current test results,
+See [completed product workflow](docs/completed-product-workflow.md) for the current
+completion policy, verified workflow, live smoke evidence and execution limits.
+The earlier [quality-pass report](docs/product-quality-pass.md) preserves its test results,
 status v2, protocol, screenshots, live/fixture evidence and limitations.
 [Controller methodology](docs/controller-value-evaluation.md) documents the historical
 four-arm study, which did not establish an LLM advantage. Historical results and the
@@ -100,7 +103,7 @@ python -B -m pytest -o addopts= -p no:cacheprovider -p tests.offline_guard tests
 npm --prefix web test
 npm --prefix web run test:browser
 npm --prefix web run build
-python -B scripts/smoke_frontend_redesign.py
+python -B scripts/smoke_completed_workflow.py
 ```
 
 The explicitly deselected foundation test reads an environment template; the offline

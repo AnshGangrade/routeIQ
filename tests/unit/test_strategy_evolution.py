@@ -18,7 +18,7 @@ from engine.evaluation.fleet_dataset import digest
 @pytest.fixture
 def cfg():
     return ExperimentConfig(population_size=4,generations=3,max_proposals=50,max_evaluations=12,
-        operations_per_evaluation=1000,max_total_operations=12000,seconds_per_evaluation=20,max_seconds=300)
+        operations_per_evaluation=20000,max_total_operations=240000,seconds_per_evaluation=20,max_seconds=300)
 
 
 @pytest.fixture(autouse=True)
@@ -112,13 +112,13 @@ def test_provider_pre_cancel_uses_no_requests():
 
 def test_shared_matrix_and_independent_cost(cfg):
     _,problem=development_panel(cfg)[0]; before=problem.model_dump()
-    r=evaluate_one(problem,StrategyConfig(),cfg)
+    r=evaluate_one(problem,StrategyConfig(),cfg.model_copy(update={"operations_per_evaluation":1000}))
     matrix=problem.distance_matrix
     actual=sum(sum(matrix[a][b] for a,b in zip(route,route[1:])) for route in r['routes'])
     assert actual==pytest.approx(r['total_distance'],rel=0,abs=1e-10) and r['operations']<=1000
     assert problem.model_dump()==before
     assert r['status']=='incomplete'  # Small explicit work cap; never relabelled.
-    f=fitness([r],1); assert f['eligible'] and f['mean_distance']==r['total_distance'] and f['incomplete']==1
+    f=fitness([r],1); assert not f['eligible'] and f['mean_distance'] is None and f['bounded_mean_distance']==r['total_distance'] and f['incomplete']==1
     bad=deepcopy(r); bad['status']='failed'
     assert fitness([bad],1)['mean_distance'] is None
     assert fitness([r],2)['mean_distance'] is None

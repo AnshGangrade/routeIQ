@@ -195,6 +195,7 @@ export interface ComparisonResponse {
 }
 
 export interface Execution {
+  independently_validated?: boolean;
   schema_version?: string; route_validity?: string; search_status?: string;
   schedule_completed?: boolean; neighborhoods_truncated?: number;
   controller?: AdaptiveEvidence | null;
@@ -219,7 +220,7 @@ export interface AdaptiveEvidence {
 }
 export type HybridMethod = 'portfolio' | 'vnd' | 'vnd_ils' | 'strategy' | 'adaptive';
 export interface OptimizeRequest {
-  instance_id: string; method: HybridMethod; operations: number; seconds: number; search_seed: number;
+  instance_id: string; method: HybridMethod; operations?: number; seconds?: number; search_seed: number;
   strategy_job_id?: string; strategy_id?: string;
   adaptive?: {provider:StartStrategyRequest['provider'];experience_job_ids:string[]};
 }
@@ -228,16 +229,18 @@ export interface OptimizationJob {
   job_id: string; instance_id: string; method: HybridMethod; problem_fingerprint: string; matrix_fingerprint: string;
   status: 'pending' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'incomplete' | 'failed';
   stage: string; termination?: string; error?: string | null; result?: RoutingResultResponse | null;
+  execution?: Record<string, unknown>; published?: boolean;
 }
 export interface StrategyFitness {
   eligible: boolean; mean_distance: number | null; completed: number; incomplete: number; failed: number;
   cases: number; expected_cases: number; operations: number; seconds: number;
+  missing_cases?: number; policy?: string;
 }
 export interface StrategyRecord {
   strategy_id: string; parents: string[]; generation: number; configuration_fingerprint: string;
   config: Record<string, unknown>; rationale: string; creation_method: 'seed' | 'llm' | 'mutation' | 'crossover' | 'random';
   fitness: StrategyFitness;
-  evaluation_history?: Array<{rows:Array<{feasible:boolean;status:string;case_id:string}>}>;
+  evaluation_history?: Array<{rows:Array<{feasible:boolean;status:string;case_id:string;independently_validated?:boolean;termination?:string}>}>;
 }
 export interface StrategyExperiment {
   proposal_events?: Array<{source:string;outcome:string;strategy_id?:string}>;
@@ -247,9 +250,10 @@ export interface StrategyExperiment {
   actual_operations?: number; reserved_evaluations?: number; llm_calls?: number; llm_tokens?: number | null;
   elapsed_seconds?: number; proposals_by_source?: Record<string, number>; rejections?: Record<string, number>;
   provider_usage?: Array<{ calls: number; seconds: number; tokens: number | null; error: string | null; mode: string }>;
-  manifest?: { arm: string; config: { generations: number; population_size: number; case_ids: string[] }; provider_mode: string; software?: unknown; panel?: unknown };
+  manifest?: { arm: string; config: { generations: number; population_size: number; case_ids: string[]; proposal_policy?:string }; provider_mode: string; software?: unknown; panel?: unknown };
 }
 export interface StartStrategyRequest {
+  workflow?: 'research' | 'ai_product';
   arm: 'llm' | 'random' | 'hand'; mode: 'offline' | 'ollama';
   config: { case_ids: string[]; seed: number; search_seed: number; population_size: number; generations: number;
     elites: number; max_evaluations: number; operations_per_evaluation: number; seconds_per_evaluation: number;

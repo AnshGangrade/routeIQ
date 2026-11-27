@@ -15,7 +15,9 @@ from api.models import DriverRouteResponse, RoutingResultResponse
 from api.routers import routing, strategies
 from engine.routing.search import SearchConfig, solve_hybrid
 from engine.routing.validation import validate_fleet_solution
-from engine.strategies.models import StrictModel, StrategyRecord
+from engine.strategies.models import StrictModel, StrategyRecord, ExperimentConfig
+from engine.strategies.evaluation import verify_completed_panel
+from engine.strategies.product import application_budget
 from engine.strategies.adaptive import AdaptiveController, ControllerUnavailable
 from engine.strategies.adaptive_models import AdaptiveRequest
 
@@ -62,6 +64,7 @@ def resolve(request):
                           operators=() if request.method == 'portfolio' else tuple(SearchConfig().operators))
     constructor = 'portfolio'
     fingerprint = None
+    scope = 'all_constructions'
     if request.method == 'strategy':
         state = strategies.snapshot(request.strategy_job_id)
         if state['status'] not in ('completed', 'stopped'):
@@ -70,14 +73,23 @@ def resolve(request):
         if raw is None:
             raise HTTPException(404, 'Strategy does not belong to this experiment')
         record = StrategyRecord.model_validate(raw)
-        if not record.fitness.get('eligible') or not record.evaluation_history:
-            raise HTTPException(409, 'Strategy has no valid complete development panel')
+        try:
+            panel_config=ExperimentConfig.model_validate(state['manifest']['config'])
+            verified=verify_completed_panel(record,panel_config)
+            if panel_config.proposal_policy=='llm_only':
+                verified &= (record.creation_method=='llm' and state.get('manifest',{}).get('provider_mode')=='ollama'
+                    and any(e.get('source')=='llm' and e.get('outcome')=='accepted' and e.get('strategy_id')==record.strategy_id
+                            for e in state.get('proposal_events',[])))
+        except (ValueError,TypeError,KeyError): verified=False
+        if not verified:
+            raise HTTPException(409, 'Strategy has no independently verified, fully completed development panel')
+        scope=panel_config.search_scope
         config, constructor, fingerprint = record.config.search_config(), record.config.construction, record.configuration_fingerprint
-    return stored, problem, config, constructor, fingerprint
+    return stored, problem, config, constructor, fingerprint, scope
 
 
 def execute(job_id, request, resolved):
-    stored, problem, config, constructor, fingerprint = resolved
+    stored, problem, config, constructor, fingerprint, scope = resolved
     entry = jobs[job_id]
     cancel = entry['cancel']
     def update(**values):
@@ -96,10 +108,19 @@ def execute(job_id, request, resolved):
         with storage.expensive_request():
             outcome = solve_hybrid(problem, construction_strategy=constructor, config=config,
                 search_seed=request.search_seed, operation_budget=request.operations,
-                time_limit_seconds=request.seconds, should_cancel=cancel.is_set,**({'controller':controller} if controller else {}))
+                time_limit_seconds=request.seconds, should_cancel=cancel.is_set,search_scope=scope,**({'controller':controller} if controller else {}))
             measured = validate_fleet_solution(problem, outcome.final_solution.routes)
+            if outcome.status=='completed' and outcome.execution_contract['search_status']!='completed':
+                raise ValueError('Search completion disagrees with termination evidence')
+            if (outcome.final_solution.problem_fingerprint != problem.fingerprint or
+                outcome.final_solution.total_distance != measured.total_distance or
+                outcome.final_solution.longest_route_distance != measured.longest_route_distance or
+                outcome.final_solution.route_distances != measured.route_distances or
+                not np.array_equal(stored['distance_matrix'],problem.matrix_array())):
+                raise ValueError('Independent result verification failed')
             execution = {
                 **outcome.execution_contract,
+                'independently_validated':True, 'search_scope':scope,
                 'status': 'failed' if outcome.errors or outcome.status == 'failed' else
                           'completed' if outcome.status == 'completed' else 'incomplete',
                 'termination': outcome.termination_reason, 'initial_distance': outcome.initial_solution.total_distance,
@@ -127,6 +148,11 @@ def execute(job_id, request, resolved):
                 update(status='failed', stage='finished', termination=outcome.termination_reason,
                        error='Optimization failed; no result was published.', execution=execution)
                 return
+            if request.method=='strategy' and execution['search_status']!='completed':
+                update(status='incomplete',stage='finished',termination=outcome.termination_reason,
+                    error='No new completed result was produced. Your previous completed routes were retained.',
+                    execution=execution,published=False)
+                return
             update(stage='road_geometry' if stored['mode'] == 'road' else 'validating')
             drivers = []
             for index, route in enumerate(outcome.final_solution.routes):
@@ -147,9 +173,11 @@ def execute(job_id, request, resolved):
                     update(status='cancelled', stage='finished', termination='cancelled', execution=execution)
                     return
                 with storage.storage_lock:
-                    storage.routing_results[(request.instance_id, request.method)] = response
+                    previous=storage.routing_results.get((request.instance_id,request.method))
+                    publish=not (previous and (previous.execution or {}).get('status')=='completed' and execution['status']!='completed')
+                    if publish: storage.routing_results[(request.instance_id, request.method)] = response
                 update(status=execution['status'], stage='finished', termination=outcome.termination_reason,
-                       result=response.model_dump(mode='json'), execution=execution)
+                       result=response.model_dump(mode='json'), execution=execution,published=publish)
     except ControllerUnavailable:
         update(status='cancelled' if cancel.is_set() else 'failed',stage='finished',
                termination='cancelled' if cancel.is_set() else 'controller_unavailable',
@@ -166,6 +194,11 @@ def execute(job_id, request, resolved):
 @router.post('/jobs', status_code=202)
 def start(request: OptimizeRequest, tasks: BackgroundTasks):
     resolved = resolve(request)
+    if request.method=='strategy':
+        operations,seconds=application_budget(len(resolved[1].stop_ids))
+        request=request.model_copy(update={
+            **({'operations':operations} if 'operations' not in request.model_fields_set else {}),
+            **({'seconds':seconds} if 'seconds' not in request.model_fields_set else {})})
     if request.adaptive is not None:
         check=strategies.check_provider(request.adaptive.provider)
         if not check.get('available'):

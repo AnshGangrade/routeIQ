@@ -29,12 +29,12 @@ test('wizard validates steps, road counts, driver limits and seed zero', () => {
 });
 
 test('generation uses one instance for both methods and retains partial failures', async t => {
-  t.mock.method(api, 'createInstance', async request => { assert.equal(request.seed, 0); return { instance_id: 'selected' }; });
+  t.mock.method(api, 'createInstance', async request => { assert.equal(request.seed, 0); return { instance_id:'selected',problem_fingerprint:'p',matrix_fingerprint:'m',distance_units:'map_units',num_stops:1,num_drivers:1,stops:[{stop_id:1}] }; });
   const calls = [];
   t.mock.method(api, 'solveRouting', async request => {
     calls.push(request);
     if (request.method === '2opt') throw new Error('Service unavailable');
-    return { instance_id: 'selected', method: request.method, total_distance: 10 };
+    return { instance_id:'selected',problem_fingerprint:'p',matrix_fingerprint:'m',distance_units:'map_units',feasible:true,execution:{status:'completed',termination:'historical_baseline_complete'},method:request.method,total_distance:10,longest_route_distance:10,drivers:[{driver_id:0,route:[0,1,0],distance:10}] };
   });
   const progress = [];
   const result = await generatePlan({ ...initialPlan, seed: '0' }, text => progress.push(text));
@@ -52,7 +52,7 @@ test('failed instance generation never proceeds to solving or reports success', 
 });
 
 test('mismatched instance or method results cannot enter the selected plan', async t => {
-  t.mock.method(api, 'createInstance', async () => ({ instance_id: 'selected' }));
+  t.mock.method(api, 'createInstance', async () => ({ instance_id: 'selected',problem_fingerprint:'p',matrix_fingerprint:'m',distance_units:'map_units',num_stops:1,num_drivers:1,stops:[{stop_id:1}] }));
   t.mock.method(api, 'solveRouting', async () => ({ instance_id: 'wrong', method: '2opt', total_distance: 1 }));
   const result = await generatePlan(initialPlan, () => {});
   assert.equal(result.results.size, 0);

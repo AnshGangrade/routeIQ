@@ -79,6 +79,8 @@ class StrategyRecord(StrictModel):
 
 class ExperimentConfig(StrictModel):
     schema_version: Literal['strategy-experiment/v1'] = 'strategy-experiment/v1'
+    proposal_policy: Literal['historical_mixed', 'llm_only'] = 'historical_mixed'
+    search_scope: Literal['all_constructions', 'best_construction'] = 'all_constructions'
     case_ids: tuple[str, ...] = ('development-n20-k2-uniform-symmetric-r0',)
     seed: int = Field(0, strict=True, ge=0, le=2**32-1)
     search_seed: int = Field(0, strict=True, ge=0, le=2**32-1)

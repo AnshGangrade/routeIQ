@@ -61,14 +61,14 @@ class OllamaProvider:
         self.config=config or ProviderConfig()
         self.client=httpx.Client(transport=transport,trust_env=False,follow_redirects=False)
     def close(self): self.client.close()
-    def propose(self,prompt,*,index,allowance,seconds,cancel):
+    def propose(self,prompt,*,index,allowance,seconds,cancel,schema=None):
         started=time.monotonic(); calls=0; tokens=0; usage_known=True; error='unavailable'
         for _ in range(min(allowance,self.config.retries+1)):
             remaining=seconds-(time.monotonic()-started)
             if cancel() or remaining <= 0: error='cancelled_or_deadline'; break
             calls+=1
             try:
-                payload={'model':self.config.model,'stream':False,'format':Proposal.model_json_schema(),
+                payload={'model':self.config.model,'stream':False,'think':False,'format':schema or Proposal.model_json_schema(),
                          'messages':[{'role':'user','content':prompt}],
                          'options':{'temperature':self.config.temperature,'num_predict':self.config.max_tokens}}
                 data=bytearray()

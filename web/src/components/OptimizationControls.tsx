@@ -32,5 +32,6 @@ export function OptimizationControls({ budget, setBudget, busy, job, error, onRu
     {job?.status === 'cancelled' && <p role="status" className="notice">Optimization cancelled. Previously calculated routes were retained.</p>}
     {job?.controller && <ControllerEvidence evidence={job.controller}/>}
     {error && <p className="notice error" role="alert">{error}</p>}
+    {job?.execution && !activeStatus(job.status) && <details><summary>Last search technical details</summary><p>{statusText(job.termination)}</p><pre>{JSON.stringify(job.execution,null,2)}</pre></details>}
   </section>;
 }

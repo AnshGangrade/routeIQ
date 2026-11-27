@@ -16,7 +16,7 @@ from scripts.run_strategy_evolution import main
 @pytest.fixture
 def payload():
     return {'config':{'population_size':4,'generations':1,'max_evaluations':4,
-        'operations_per_evaluation':1000,'max_total_operations':4000,'seconds_per_evaluation':20,'max_seconds':120}}
+        'operations_per_evaluation':10000,'max_total_operations':40000,'seconds_per_evaluation':20,'max_seconds':120}}
 
 
 @pytest.fixture

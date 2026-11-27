@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CompareScreen } from './components/CompareScreen';
 import { StrategyLab } from './components/StrategyLab';
 import { defaultBudget } from './components/OptimizationControls';
-import { activeStatus, validateRouteResult, watchTask } from './services/product';
+import { activeStatus, validateRouteResult, watchTask, completedOptimizationResult } from './services/product';
 import { api } from './services/api';
 import { generatePlan, initialPlan, methodNames, viewFromHash } from './services/workflow';
 import type { Method, View } from './services/workflow';
@@ -60,10 +60,10 @@ function App() {
         throw new Error('Optimization result uses another problem matrix.');
       setOptimizationError(null); setOptimization(progress);
       if (progress.status === 'failed') setOptimizationError(progress.error || 'Optimization failed. Your earlier routes were retained.');
-      if (progress.result && ['completed', 'incomplete'].includes(progress.status)) {
-        validateRouteResult(instance, progress.result);
-        if (progress.result.method !== progress.method) throw new Error('Unexpected optimization method.');
-        setResults(previous => new Map(previous).set(progress.method, progress.result!)); setMethod(progress.method); setDriver(null);
+      if (progress.status==='incomplete') setOptimizationError('No new completed result was produced. Your previous completed routes were retained.');
+      const published=completedOptimizationResult(instance,progress);
+      if (published) {
+        setResults(previous => new Map(previous).set(progress.method, published)); setMethod(progress.method); setDriver(null);
       }
     }, (message, terminal) => {
       if (optimizationRef.current !== optimizationId) return;
@@ -117,7 +117,8 @@ function App() {
     if (!instance || draftChanged || optimizing) throw new Error('Select a plan and finish any active optimization first.');
     if (!Number.isInteger(budget.operations) || budget.operations < 0 || budget.operations > 500000 || !Number.isFinite(budget.seconds) || budget.seconds < 0 || budget.seconds > 30 || !Number.isInteger(budget.search_seed) || budget.search_seed < 0 || budget.search_seed > 4294967295)
       throw new Error('Use 0–500,000 operations, 0–30 seconds, and a whole-number search seed.');
-    const response = await api.startOptimization({ instance_id: instance.instance_id, method: selected, operations:budget.operations,seconds:budget.seconds,search_seed:budget.search_seed,
+    const response = await api.startOptimization({ instance_id: instance.instance_id, method: selected, search_seed:budget.search_seed,
+      ...(selected==='strategy' ? {} : {operations:budget.operations,seconds:budget.seconds}),
       ...(selected === 'adaptive' ? {adaptive:{provider:{model:budget.adaptiveModel || 'qwen3:1.7b',temperature:.3,timeout:5,retries:0,max_tokens:768},experience_job_ids:(budget.experienceJobs || '').split(',').map(s=>s.trim()).filter(Boolean)}} : {}),
       ...(selected === 'strategy' ? { strategy_job_id: strategyJob, strategy_id: strategyId } : {}) });
     if (response.instance_id !== instanceRef.current || response.method !== selected) throw new Error('Optimization started for an unexpected plan.');
@@ -150,7 +151,7 @@ function App() {
   return <ConfirmationProvider><div className={`app-shell workspace-shell view-${view}`}>
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); main.current?.focus(); }}>Skip to content</a>
     <header className="app-header"><a href="#home" className="brand" aria-label="RouteIQ home"><BrandMark /><span>Route<span className="brand-iq">IQ</span></span></a><nav aria-label="Main navigation">
-      {([['home', 'Home'], ['routes', 'Route Plan'], ['compare', 'Compare'], ['lab', 'Strategy Experiments']] as [View, string][]).map(([target, title]) => <a key={title} title={title} href={`#${target}`} aria-current={view === target || title === 'Route Plan' && view === 'setup' ? 'page' : undefined}><Icon name={title === "Home" ? "home" : title === "Route Plan" ? "map" : title === "Compare" ? "compare" : "lab"} size={17}/><span>{title}</span>{title === 'Strategy Experiments' && strategyStatus && <span className="live-dot" aria-label="Experiment running" />}</a>)}
+      {([['home', 'Home'], ['routes', 'Route Plan'], ['compare', 'Compare'], ['lab', 'Evolution']] as [View, string][]).map(([target, title]) => <a key={title} title={title} href={`#${target}`} aria-current={view === target || title === 'Route Plan' && view === 'setup' ? 'page' : undefined}><Icon name={title === "Home" ? "home" : title === "Route Plan" ? "map" : title === "Compare" ? "compare" : "lab"} size={17}/><span>{title}</span>{title === 'Evolution' && strategyStatus && <span className="live-dot" aria-label="Experiment running" />}</a>)}
     </nav></header>
     <div className="context-bar"><span>{instance ? `${draftChanged ? 'Saved ' : ''}${instance.mode === 'road' ? 'Road' : 'Demo'} plan · ${instance.num_stops} stops · ${instance.num_drivers} drivers` : (view === 'setup' || view === 'routes') ? 'Draft plan' : 'No plan selected'}</span>{instance && <span className="instance-id" title={instance.instance_id}>Plan {instance.instance_id.slice(-8)}</span>}{comparing && <a href="#compare">Route comparison / {comparisonProgress?.status}</a>}{optimizing && <a href="#routes">Optimization · {optimization?.status}</a>}{strategyStatus && <a href="#lab">Strategy experiment · {strategyStatus}</a>}</div>
     <main id="main-content" ref={main} tabIndex={-1} className="app-main">

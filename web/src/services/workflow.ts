@@ -1,4 +1,5 @@
 import { api } from './api';
+import { validateCompletedResult } from './product';
 import { parseCoordinatePair, parseSeed } from './inputs';
 import type { GenerateInstanceRequest, RoutingResultResponse } from '../types/api';
 
@@ -53,7 +54,10 @@ export async function generatePlan(plan: PlanDraft, progress: (message: string) 
   outcomes.forEach((outcome, i) => {
     if (outcome.status === 'fulfilled' && outcome.value.instance_id === instance.instance_id && outcome.value.method === methods[i]
       && (!instance.problem_fingerprint || outcome.value.problem_fingerprint === instance.problem_fingerprint)
-      && (!instance.matrix_fingerprint || outcome.value.matrix_fingerprint === instance.matrix_fingerprint)) results.set(methods[i], outcome.value);
+      && (!instance.matrix_fingerprint || outcome.value.matrix_fingerprint === instance.matrix_fingerprint)) {
+      try {validateCompletedResult(instance,outcome.value);results.set(methods[i],outcome.value);}
+      catch {errors.push(`${methodNames[methods[i]]}: No completed independently validated result was returned.`);}
+    }
     else errors.push(`${methodNames[methods[i]]}: ${outcome.status === 'rejected' && outcome.reason instanceof Error ? outcome.reason.message : 'The server returned an unexpected route result.'}`);
   });
   return { instance, results, errors };

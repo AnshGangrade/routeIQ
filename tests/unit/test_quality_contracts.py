@@ -60,12 +60,12 @@ def test_actual_ils_schedule_completion_and_zero_budget():
 def test_completed_and_bounded_rankings_are_separate():
     def record(key,distance,complete):
         return StrategyRecord(strategy_id=key,config=StrategyConfig(),generation=0,creation_method='seed',
-            fitness={'eligible':True,'mean_distance':distance,'completed':int(complete),'incomplete':int(not complete),'expected_cases':1})
+            fitness={'eligible':True,'policy':'completed_panel/v1','mean_distance':distance,'completed':int(complete),'incomplete':int(not complete),'expected_cases':1})
     result=candidate_rankings([record('incomplete',1,False),record('complete',10,True)])
     assert result['completed_only']==['complete']
     assert result['bounded_incumbents']==['incomplete','complete']
     assert result['recommended_id']=='complete'
-    assert candidate_rankings([record('incomplete',1,False)])['recommendation_kind']=='incomplete'
+    assert candidate_rankings([record('incomplete',1,False)])['recommendation_kind']=='unavailable'
 
 
 @pytest.mark.parametrize('change',[{}, {'feasible':False},{'matrix_fingerprint':'wrong'},

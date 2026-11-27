@@ -3,13 +3,14 @@ import type { StrategyExperiment, StrategyRecord } from '../types/api';
 export function completedCandidate(record: StrategyRecord) {
   const f=record.fitness;
   return f.eligible && f.expected_cases>0 && f.completed===f.expected_cases &&
-    f.cases===f.expected_cases && f.incomplete===0 && f.failed===0;
+    f.cases===f.expected_cases && f.incomplete===0 && f.failed===0 && !f.missing_cases && f.policy==='completed_panel/v1';
 }
 export function candidateRecommendation(state: StrategyExperiment) {
   const eligible=Object.values(state.records||{}).filter(r=>r.fitness.eligible &&
     r.fitness.mean_distance != null && Number.isFinite(r.fitness.mean_distance) && r.fitness.mean_distance>=0);
-  const completed=eligible.filter(completedCandidate);
-  return (completed.length?completed:eligible).sort((a,b)=>a.fitness.mean_distance!-b.fitness.mean_distance! || a.strategy_id.localeCompare(b.strategy_id))[0] || null;
+  const completed=eligible.filter(completedCandidate).filter(r=>state.manifest?.config.proposal_policy!=='llm_only' ||
+    r.creation_method==='llm' && experimentEvidence(state,r.strategy_id).winnerLLM);
+  return completed.sort((a,b)=>a.fitness.mean_distance!-b.fitness.mean_distance! || a.strategy_id.localeCompare(b.strategy_id))[0] || null;
 }
 
 export type ProviderCheck = {
@@ -31,14 +32,16 @@ export function experimentEvidence(state: StrategyExperiment, winnerId = state.b
     for (const key of ['completed', 'incomplete', 'failed'] as const) counts[key] += record.fitness[key] || 0;
   }
   const visited = new Set<string>();
+  const acceptedLive = (record: StrategyRecord) => record.creation_method==='llm' &&
+    !!state.proposal_events?.some(e=>e.source==='llm' && e.outcome==='accepted' && e.strategy_id===record.strategy_id);
   const evaluatedLive = (record: StrategyRecord) => {
     const history=record.evaluation_history || [];
     const rows=history[history.length-1]?.rows || [];
     const expected=state.manifest?.config?.case_ids || [];
-    return record.creation_method==='llm' && record.fitness.eligible && expected.length>0 &&
+    return acceptedLive(record) && completedCandidate(record) && expected.length>0 &&
       rows.length===expected.length && new Set(rows.map(r=>r.case_id)).size===expected.length &&
-      rows.every(r=>r.feasible && ['completed','incomplete'].includes(r.status) && expected.includes(r.case_id)) &&
-      !!state.proposal_events?.some(e=>e.source==='llm' && e.outcome==='accepted' && e.strategy_id===record.strategy_id);
+      rows.every(r=>r.feasible && r.independently_validated===true && r.status==='completed' &&
+        ['local_search_complete','no_perturbation_available','ils_iteration_limit'].includes(r.termination||'') && expected.includes(r.case_id));
   };
   const fromLLM = (id: string): boolean => {
     if (visited.has(id)) return false;
@@ -48,7 +51,7 @@ export function experimentEvidence(state: StrategyExperiment, winnerId = state.b
   };
   const live = state.manifest?.provider_mode === 'ollama';
   return { ...counts, missing: Math.max(0, (state.reserved_evaluations || 0) - counts.completed - counts.incomplete - counts.failed),
-    acceptedLLM: live ? Object.values(records).filter(evaluatedLive).length : 0,
+    acceptedLLM: live ? Object.values(records).filter(acceptedLive).length : 0,
     evaluatedLLM: live ? Object.values(records).filter(evaluatedLive).length : 0,
     winnerLLM: live && !!winnerId && fromLLM(winnerId) };
 }

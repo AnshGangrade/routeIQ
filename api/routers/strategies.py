@@ -12,6 +12,7 @@ from pydantic import model_validator
 from engine.strategies.models import StrictModel,ExperimentConfig
 from engine.strategies.provider import ProviderConfig,OfflineProvider,OllamaProvider
 from engine.strategies.evolution import run_experiment
+from engine.strategies.product import product_config
 
 router=APIRouter()
 ROOT=Path(__file__).resolve().parents[2]/'runs'/'strategy-api'
@@ -20,13 +21,17 @@ MAX_JOBS=20; MAX_ACTIVE=2
 
 
 class StartRequest(StrictModel):
+    workflow: Literal['research','ai_product'] = 'research'
     config: ExperimentConfig = ExperimentConfig()
     mode: Literal['offline','ollama'] = 'offline'
     arm: Literal['llm','random','hand'] = 'llm'
-    provider: ProviderConfig = ProviderConfig()
+    provider: ProviderConfig = ProviderConfig(model='qwen3:1.7b')
 
     @model_validator(mode='after')
     def admission(self):
+        if self.workflow=='ai_product':
+            if self.mode!='ollama' or self.arm!='llm': raise ValueError('AI-guided strategy requires Ollama')
+            object.__setattr__(self,'config',product_config())
         c=self.config
         if (len(c.case_ids)>12 or c.population_size>16 or c.max_proposals>200 or c.max_evaluations>128
                 or c.max_seconds>1800 or c.operations_per_evaluation>1000000 or c.max_total_operations>128000000):
@@ -106,13 +111,13 @@ def check_provider(config):
             available=any(isinstance(m,dict) and m.get('name')==config.model for m in models)
             return {'configured':True,'reachable':True,'available':available,'model':config.model,
                     'status':'available' if available else 'model_missing',
-                    'message':'Model available' if available else 'Model is not installed in Ollama. Install the exact model shown in Advanced settings, then retry.'}
+                    'message':'Model available' if available else f'Model {config.model} is not installed in Ollama. Install this exact model, then retry.'}
     except (httpx.ConnectError,httpx.ConnectTimeout):
         return {'configured':True,'reachable':False,'available':False,'model':config.model,
-                'status':'unreachable','message':'Local Ollama is unreachable. Install or start Ollama, then retry. Installation cannot be determined remotely. Random baseline remains available.'}
+                'status':'unreachable','message':'Local Ollama is unreachable. Install or start Ollama, then retry. No evolution was started.'}
     except (httpx.HTTPError,ValueError,TypeError,KeyError):
         return {'configured':True,'reachable':False,'available':False,'model':config.model,
-                'status':'check_failed','message':'Provider check failed or returned an invalid inventory. Check the local Ollama service and retry. Random baseline remains available.'}
+                'status':'check_failed','message':'Provider check failed or returned an invalid inventory. Check the local Ollama service and retry.'}
 
 
 @router.post('/provider/check')

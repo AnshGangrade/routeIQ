@@ -106,9 +106,9 @@ test('execution details distinguish retained and raw distances with honest budge
   assert.match(html,/constructor/i); assert.doesNotMatch(html,/66.7%/);
 });
 
-test('Phase 6 lab defaults offline, explains controls and does not claim superiority', () => {
+test('product evolution defaults to one real Ollama method and no research choices', () => {
   const html=renderToStaticMarkup(React.createElement(StrategyLab,{hasInstance:false,applying:false,onApply(){},onStatus(){}}));
-  assert.match(html,/Random strategy search/); assert.match(html,/Hand-authored portfolio/); assert.match(html,/AI-guided proposals/);
-  assert.match(html,/88 held-out/); assert.match(html,/does not establish/); assert.match(html,/development data only/);
-  assert.doesNotMatch(html,/<details open/); assert.doesNotMatch(html,/Apply strategy to current plan/);
+  assert.match(html,/AI-guided strategy/);assert.match(html,/qwen3:1.7b/);assert.match(html,/Check Ollama/);
+  assert.match(html,/trusted routing engine/);assert.match(html,/does not guarantee an optimal solution/);
+  assert.doesNotMatch(html,/<select|type="radio"|Random baseline|Hand-authored portfolio|Offline fixture|Apply to current plan|<details open/);
 });

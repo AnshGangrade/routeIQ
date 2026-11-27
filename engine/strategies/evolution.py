@@ -15,6 +15,7 @@ from .evaluation import development_panel, evaluate_one, fitness, rank, candidat
 from engine.evaluation.fleet_dataset import digest
 from .protocol import software_record
 from engine.routing.validation import validate_fleet_solution
+from .product import product_seeds, product_proposal, product_proposal_schema
 
 
 def hand_strategies():
@@ -78,15 +79,24 @@ def manifest(config,arm,panel,provider,root):
 def prompt_for(parents,state):
     # Only development fitness is present in this state. Never read benchmark artifacts.
     return json.dumps({'task':'Propose ONE JSON routing strategy. No code. Minimize fleet distance.',
-        'schema':Proposal.model_json_schema(),'semantics':'Fixed restart VND; mandatory legacy constructors; host owns seeds and budgets.',
+        'schema':product_proposal_schema() if state['manifest']['config'].get('proposal_policy')=='llm_only' else Proposal.model_json_schema(),
+        'semantics':'Fixed restart VND; mandatory legacy constructors; host owns seeds and budgets.',
         'parents':[{'config':p.config.model_dump(mode='json'),'development':p.fitness} for p in parents],
         'best_development_fitness':state['records'].get(state['best_id'],{}).get('fitness'),
         'failures':state['rejections'],'diversity':state['history'][-1] if state['history'] else {},
-        'resource_limits':state['manifest']['config']},allow_nan=False)
+        'resource_limits':state['manifest']['config'],
+        'product_rules': ('Use legacy_2opt or nearest_neighbor_starts with nn_attempts <= 2; one or two operators. '
+            'The seeds already evaluated two_opt alone: add at least one other neighborhood. '
+            'ils_iterations=0; max_operator_calls>=100; max_moves_per_operator=100000 unless only two_opt. '
+            'Prefer a small complete search. Choose a configuration different from previous proposals.'
+            if state['manifest']['config'].get('proposal_policy')=='llm_only' else None)},allow_nan=False)
 
 
 def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=lambda:False,progress=None,root=None):
     if arm not in ('llm','random','hand'): raise ValueError('Unknown arm')
+    product = config.proposal_policy == 'llm_only'
+    if product and (arm != 'llm' or getattr(provider,'mode',None) != 'ollama'):
+        raise ValueError('The product workflow requires an explicit Ollama provider')
     provider=provider or OfflineProvider(); root=Path(root or Path(__file__).resolve().parents[2])
     output=Path(output); panel=development_panel(config)
     registered=manifest(config,arm,panel,provider,root)
@@ -154,7 +164,7 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
     def save():
         state['elapsed_seconds']=elapsed(); state['rng']=rng.getstate()
         state['records']={k:v.model_dump(mode='json') for k,v in records.items()}
-        state['rankings']=candidate_rankings(records.values())
+        state['rankings']=candidate_rankings(r for r in records.values() if not product or r.creation_method=='llm')
         atomic_json(output/'checkpoint.json',{'state':state,'checksum':digest(state)})
         if progress: progress(json.loads(json.dumps(state)))
     def reject(reason): state['rejections'][reason]=state['rejections'].get(reason,0)+1
@@ -171,6 +181,30 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
         return key
     def propose():
         number=state['proposals']; state['proposals']+=1
+        if product:
+            seeds=product_seeds()
+            if number<len(seeds): return admit(seeds[number],'seed',rationale='Trusted product seed',protected=True)
+            if state['llm_calls']>=config.max_llm_calls:
+                state['termination']='llm_proposal_limit'; return None
+            parents=sorted((r for r in records.values() if r.fitness.get('eligible')),key=rank)[:2]
+            allowance=min(config.max_llm_calls-state['llm_calls'],getattr(getattr(provider,'config',None),'retries',0)+1)
+            index=state['llm_calls'];state['llm_calls']+=allowance
+            state['in_flight_llm_seconds']=min(config.max_seconds-elapsed(),getattr(getattr(provider,'config',None),'timeout',0)*allowance)
+            save()
+            proposal,usage=provider.propose(prompt_for(parents,state),index=index,allowance=allowance,
+                seconds=max(0.,config.max_seconds-elapsed()),cancel=cancel,schema=product_proposal_schema())
+            state['provider_usage'].append(usage);state['in_flight_llm_seconds']=0.
+            state['llm_tokens']=None if usage['tokens'] is None or state['llm_tokens'] is None else state['llm_tokens']+usage['tokens']
+            if proposal is None:
+                reject('llm_invalid_or_unavailable')
+                state['proposal_events'].append({'source':'llm','generation':state['generation'],'outcome':'invalid'})
+                state['termination']='llm_unavailable';return None
+            if not product_proposal(proposal.config):
+                reject('product_schedule_limit')
+                state['proposal_events'].append({'source':'llm','generation':state['generation'],'outcome':'rejected_product_schedule',
+                    'config':proposal.config.model_dump(mode='json')})
+                return None
+            return admit(proposal.config,'llm',parents,proposal.rationale)
         if state['fallback_pending']:
             state['fallback_pending']=False
             return admit(random_strategy(rng),'random')
@@ -210,13 +244,14 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
             # Persist the entire proposal queue before evaluation; resume consumes it.
             if not state['queue']:
                 t=time.monotonic()
-                target=(min(config.population_size,len(hand_strategies())) if arm=='hand' else
+                target=(2 if product else min(config.population_size,len(hand_strategies())) if arm=='hand' else
                         config.population_size if state['generation']==0 else config.population_size-config.elites)
-                while len(state['queue'])<target and state['proposals']<config.max_proposals and not stopped():
+                while len(state['queue'])<target and state['proposals']<config.max_proposals and not stopped() and not state['termination']:
                     key=propose()
                     if key: state['queue'].append(key)
                 state['generation_seconds']+=time.monotonic()-t; save()
-                if not state['queue']: state['termination']='proposal_limit'; break
+                if state['termination']: break
+                if not state['queue']: state['termination']='llm_proposal_limit' if product else 'proposal_limit'; break
             for key in state['queue']:
                 r=records[key]
                 if r.evaluation_history: continue
@@ -235,7 +270,7 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
                 records[key]=r.model_copy(update={'evaluation_history':({'rows':rows,'status':'measured'},),'fitness':f})
                 state['actual_operations']+=f['operations']; state['evaluation_seconds']+=f['seconds']
                 old=records.get(state['best_id'])
-                if f['eligible'] and (old is None or rank(records[key])<rank(old)):
+                if f['eligible'] and (not product or r.creation_method=='llm') and (old is None or rank(records[key])<rank(old)):
                     # Ties may replace identity deterministically, but are not gains.
                     if old and f['mean_distance']<old.fitness['mean_distance']:
                         source=r.creation_method
@@ -249,7 +284,7 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
             scores=[r.fitness['mean_distance'] for r in selected if r.fitness.get('eligible')]
             best=records[state['best_id']].fitness['mean_distance'] if state['best_id'] else None
             previous=state['history'][-1]['best_so_far'] if state['history'] else None
-            state['stagnation']=state['stagnation']+1 if previous is not None and best>=previous else 0
+            state['stagnation']=state['stagnation']+1 if previous is not None and best is not None and best>=previous else 0
             state['history'].append({'generation':state['generation'],'best_so_far':best,
                 'fitness_min':min(scores,default=None),'fitness_max':max(scores,default=None),
                 'fitness_mean':statistics.mean(scores) if scores else None,'unique_configurations':len(records),
@@ -262,6 +297,8 @@ def _run_experiment(config,output,*,arm='llm',provider=None,resume=False,cancel=
         if stopped(): state['termination']='cancelled' if cancel() else 'time_limit'
         state['status']='cancelled' if state['termination']=='cancelled' else 'stopped' if state['termination'] in ('time_limit','proposal_limit','evaluation_budget') else 'completed'
         state['termination']=state['termination'] or 'generation_limit'
+        if product and state['termination'] in ('llm_unavailable','llm_proposal_limit'):
+            state.update(status='failed',best_id=None)
         if state['status']=='completed' and state['best_id'] is None:
             state.update(status='failed',termination='no_valid_strategy')
     except Exception as exc:
