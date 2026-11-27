@@ -144,7 +144,10 @@ def test_matrix_mismatch_and_stale_comparison_fail_closed():
         client.post('/api/routing/solve',json={'instance_id':plan['instance_id'],'method':'nearest_neighbor'})
         key=(plan['instance_id'],'nearest_neighbor')
         storage.routing_results[key]=storage.routing_results[key].model_copy(update={'matrix_fingerprint':'other'})
-        assert client.get('/api/results/'+plan['instance_id']+'/comparison').status_code==409
+        comparison=client.get('/api/results/'+plan['instance_id']+'/comparison')
+        assert comparison.status_code==200
+        assert comparison.json()['comparisons'][0]['server_verified'] is False
+        assert comparison.json()['comparisons'][0]['improvement_vs_nn'] is None
         storage.instance_store[plan['instance_id']]['distance_matrix']=np.zeros((8,8))
         assert client.post('/api/optimization/jobs',json={'instance_id':plan['instance_id']}).status_code==409
 

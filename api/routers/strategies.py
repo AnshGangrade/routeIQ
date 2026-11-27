@@ -143,7 +143,29 @@ def strategy(job_id:str,strategy_id:str):
 
 
 @router.get('/{job_id}/export')
-def export(job_id:str): return snapshot(job_id)
+def export(job_id:str):
+    state=snapshot(job_id)
+    return {**state,'seed_comparison':trusted_seed_comparison(state)}
+
+
+def trusted_seed_comparison(state):
+    """Fresh matrix verification, same recorded panel/budgets; no solver or artifact mutation."""
+    from engine.strategies.models import StrategyRecord
+    from engine.strategies.evaluation import verify_completed_panel
+    if state.get('status') not in ('completed','stopped') or not state.get('best_id'): return None
+    try:
+        config=ExperimentConfig.model_validate(state['manifest']['config'])
+        records={k:StrategyRecord.model_validate(v) for k,v in state['records'].items()}
+        winner=records[state['best_id']]
+        if not verify_completed_panel(winner,config): return None
+        seeds=[r for r in records.values() if r.creation_method=='seed' and verify_completed_panel(r,config)]
+        if not seeds: return None
+        seed=min(seeds,key=lambda r:(r.fitness['mean_distance'],r.strategy_id))
+        a,b=winner.fitness['mean_distance'],seed.fitness['mean_distance']
+        return {'verified':True,'winner_id':winner.strategy_id,'seed_id':seed.strategy_id,
+            'winner_mean':a,'seed_mean':b,'difference':b-a,'percentage':(b-a)/b*100 if b else None,
+            'cases':len(config.case_ids),'distance_units':'map_units'}
+    except (ValueError,TypeError,KeyError): return None
 
 
 @router.post('/{job_id}/cancel')

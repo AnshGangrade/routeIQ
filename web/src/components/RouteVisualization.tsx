@@ -1,5 +1,5 @@
 import { driverColor, mapRouteStyle } from '../services/presentation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { InteractiveMap } from './InteractiveMap';
 import type { InstanceResponse, RoutingResultResponse } from '../types/api';
 import { methodNames, type Method } from '../services/workflow';
@@ -32,6 +32,21 @@ export function RouteVisualization({
   const [localDriver, setLocalDriver] = useState<number | null>(null);
   const selectedDriverId = controlledDriver === undefined ? localDriver : controlledDriver;
   const setSelectedDriverId = onDriverSelect || setLocalDriver;
+
+  // Keep labels and interactive targets readable when the map panel resizes.
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [markerScale, setMarkerScale] = useState(1);
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const {width, height} = entry.contentRect;
+      if (width > 0 && height > 0) setMarkerScale(1 / Math.min(width / 800, height / 600));
+    });
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, [instance?.instance_id, instance?.mode]);
+  const markerTransform = (x:number,y:number) => `translate(${x} ${y}) scale(${markerScale}) translate(${-x} ${-y})`;
 
   // Calculate view bounds (for SVG mode)
   const bounds = useMemo(() => {
@@ -77,15 +92,15 @@ export function RouteVisualization({
     return (
       <div className="card-elevated content-padding">
         <h2 className="editorial-heading mb-6">Route Visualization</h2>
-        <div className="flex flex-col items-center justify-center min-h-[500px] bg-[#F6F5F0] rounded-lg border-2 border-dashed border-[#E1DFD7]">
+        <div className="flex flex-col items-center justify-center min-h-[500px] bg-[var(--color-surface-secondary)] rounded-lg border-2 border-dashed border-[var(--color-border)]">
           <div className="text-center space-y-4 max-w-md px-6">
-            <p className="text-lg font-semibold text-[#6D6D69]">No instance generated</p>
-            <p className="text-sm text-[#6D6D69] leading-relaxed">
+            <p className="text-lg font-semibold text-[var(--color-text-muted)]">No instance generated</p>
+            <p className="text-sm text-[var(--color-text-muted)] leading-relaxed">
               Use the configuration panel to generate an instance. Choose synthetic coordinates
               or real road network mode, specify stops and drivers, then generate.
             </p>
             <div className="pt-4">
-              <p className="mono-label text-[10px] text-[#6D6D69]">
+              <p className="mono-label text-[10px] text-[var(--color-text-muted)]">
                 Configure → Generate → Solve → Visualize
               </p>
             </div>
@@ -103,7 +118,7 @@ export function RouteVisualization({
       <div className="flex items-center justify-between mb-4">
         <div>
           <h2>Your route map</h2>
-          <p className="text-sm text-[#6D6D69] mt-1">
+          <p className="text-sm text-[var(--color-text-muted)] mt-1">
             {isRoadMode ? (
               <>Real road network · OSRM routing</>
             ) : (
@@ -117,7 +132,7 @@ export function RouteVisualization({
             aria-label="Displayed route method"
             value={selectedMethod}
             onChange={(e) => onMethodSelect(e.target.value)}
-            className="px-3 py-2 text-sm border border-[#E1DFD7] rounded-md focus:ring-2 focus:ring-[#191919] focus:border-transparent bg-white"
+            className="px-3 py-2 text-sm border border-[var(--color-border)] rounded-md focus:ring-2 focus:ring-[var(--color-text)] focus:border-transparent bg-white"
           >
             {availableMethods.map(method => (
               <option key={method} value={method}>
@@ -142,26 +157,27 @@ export function RouteVisualization({
         />
       ) : (
         /* SVG Coordinate Plot for Synthetic Mode */
-        <div className="bg-[#F6F5F0] rounded-lg p-4 border border-[#E1DFD7]">
+        <div className="bg-[var(--color-surface-secondary)] rounded-lg p-4 border border-[var(--color-border)]">
           {!routingResult && (
-            <div className="mb-3 p-3 bg-[#F6F5F0] border border-[#D9B65A]/30 rounded-md">
-              <p className="text-xs text-[#191919] font-medium">
+            <div className="mb-3 p-3 bg-[var(--color-surface-secondary)] border border-[var(--color-primary)]/30 rounded-md">
+              <p className="text-xs text-[var(--color-text)] font-medium">
                 Routes not yet calculated. Run a routing algorithm to see optimized paths.
               </p>
             </div>
           )}
 
           <svg
+            ref={svgRef}
             role="img"
             aria-label="Synthetic route map showing the depot, numbered delivery stops, and driver routes"
             viewBox="0 0 800 600"
-            className="w-full h-auto bg-white rounded border border-[#E1DFD7]"
+            className="w-full h-auto bg-white rounded border border-[var(--color-border)]"
             style={{ maxHeight: '600px' }}
           >
             {/* Background grid */}
             <defs>
               <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#E1DFD7" strokeWidth="0.5" />
+                <path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--color-border)" strokeWidth="0.5" />
               </pattern>
             </defs>
             <rect width="100%" height="100%" fill="url(#smallGrid)" />
@@ -194,7 +210,7 @@ export function RouteVisualization({
 
                     return (
                       <g key={`${stopId}-${nextStopId}`}>
-                      {style.casing && <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#191919" strokeWidth="7" strokeLinecap="round"/>}
+                      {style.casing && <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--color-text)" strokeWidth="7" strokeLinecap="round"/>}
                       <line
                         x1={x1}
                         y1={y1}
@@ -220,18 +236,18 @@ export function RouteVisualization({
                 instance.depot.y ?? instance.depot.lat ?? 0
               );
               return (
-                <g>
+                <g transform={markerTransform(dx,dy)}>
                   <rect
                     x={dx - 10}
                     y={dy - 10}
                     width="20"
                     height="20"
-                    fill="#191919"
-                    stroke="#191919"
+                    fill="var(--color-text)"
+                    stroke="var(--color-text)"
                     strokeWidth="2"
                     rx="2"
                   />
-                  <circle cx={dx} cy={dy} r="5" fill="#D9B65A"/>
+                  <circle cx={dx} cy={dy} r="5" fill="var(--color-primary)"/>
                   <text
                     x={dx}
                     y={dy - 16}
@@ -239,7 +255,7 @@ export function RouteVisualization({
                     fontSize="11"
                     fontWeight="bold"
                     fontFamily="IBM Plex Mono"
-                    fill="#191919"
+                    fill="var(--color-text)"
                   >
                     DEPOT
                   </text>
@@ -253,19 +269,20 @@ export function RouteVisualization({
 
               const focused = selectedStopId === stop.stop_id;
               const owner = routingResult?.drivers.find(d=>d.route.includes(stop.stop_id));
-              const color = owner ? driverColor(owner.driver_id) : "#94712d";
+              const color = owner ? driverColor(owner.driver_id) : "var(--color-primary-deep)";
 
               return (
-                <g key={stop.stop_id} role="button" tabIndex={0} aria-label={`Delivery stop ${stop.stop_id}`} aria-pressed={selectedStopId === stop.stop_id}
+                <g key={stop.stop_id} transform={markerTransform(sx,sy)} role="button" tabIndex={0} aria-label={`Delivery stop ${stop.stop_id}`} aria-pressed={selectedStopId === stop.stop_id}
                   onClick={() => onStopSelect?.(stop.stop_id)} onKeyDown={e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();onStopSelect?.(stop.stop_id);}}}>
-                  {focused && <circle cx={sx} cy={sy} r="18" fill="none" stroke="#191919" strokeWidth="2"/>}
+                  <circle cx={sx} cy={sy} r="18" fill="transparent"/>
+                  {focused && <circle cx={sx} cy={sy} r="18" fill="none" stroke="var(--color-text)" strokeWidth="2"/>}
                   {/* Stop marker circle */}
                   <circle
                     cx={sx}
                     cy={sy}
                     r="12"
                     fill={color}
-                    stroke="#191919"
+                    stroke="var(--color-text)"
                     strokeWidth="2.5"
                   />
                   {/* Stop number */}
@@ -286,7 +303,7 @@ export function RouteVisualization({
             })}
           </svg>
 
-          <p className="mt-3 text-xs text-[#6D6D69] italic">
+          <p className="mt-3 text-xs text-[var(--color-text-muted)] italic">
             Synthetic coordinates with Euclidean (straight-line) distances. Not actual road distances.
           </p>
         </div>
@@ -296,7 +313,7 @@ export function RouteVisualization({
       <div className="mt-4 flex flex-wrap gap-4 items-center">
         <div className="flex items-center gap-2">
           <div className="w-4 h-4 depot-key border-2 rounded-sm"></div>
-          <span className="text-sm text-[#6D6D69] font-medium">Depot</span>
+          <span className="text-sm text-[var(--color-text-muted)] font-medium">Depot</span>
         </div>
         {instance.drivers.map(driver => (
           <button
@@ -311,14 +328,14 @@ export function RouteVisualization({
               className={`w-4 h-4 rounded-full border-2 ${
                 selectedDriverId === null || selectedDriverId === driver.driver_id
                   ? 'border-white shadow-sm'
-                  : 'border-[#E1DFD7] opacity-40'
+                  : 'border-[var(--color-border)] opacity-40'
               }`}
               style={{ backgroundColor: mapRouteStyle(selectedMethod,selectedDriverId === null || selectedDriverId === driver.driver_id,driver.driver_id).color }}
             ></div>
             <span className={`text-sm ${
               selectedDriverId === null || selectedDriverId === driver.driver_id
-                ? 'text-[#6D6D69] font-medium'
-                : 'text-[#6D6D69]/40'
+                ? 'text-[var(--color-text-muted)] font-medium'
+                : 'text-[var(--color-text-muted)]/40'
             }`}>
               {driver.name}
             </span>
@@ -327,7 +344,7 @@ export function RouteVisualization({
         {selectedDriverId !== null && (
           <button
             onClick={() => setSelectedDriverId(null)}
-            className="text-xs text-[#191919] hover:underline ml-2 font-semibold"
+            className="text-xs text-[var(--color-text)] hover:underline ml-2 font-semibold"
           >
             Show All
           </button>

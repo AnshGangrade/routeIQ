@@ -1,68 +1,48 @@
-import { comparisonMethods, recommendedResult, type ComparisonProgress } from '../services/comparison';
+import { recommendedResult } from '../services/comparison';
+import type { ComparisonProgress } from '../services/comparison';
 import { ComparisonBars } from './ResearchVisuals';
 import type { ComparisonResponse, EvolutionProgressResponse, InstanceResponse } from '../types/api';
 import { methodNames, type Method } from '../services/workflow';
 import { formatDistance } from '../services/distance';
-import { baselineName, completionText, savings, savingsText, verifiedMeasurement } from '../services/routeEvidence';
+import { baselineName, completedMeasurement, savingsText } from '../services/routeEvidence';
 import { statusText } from '../services/product';
+import { driverColor } from '../services/presentation';
+import { PageHeading, EmptyState, Icon } from './Design';
 import { EvaluationSummary } from './EvaluationSummary';
 import { PlanSelection } from './PlanSelection';
-
 interface Props { onCompare?:()=>void; onCancelComparison?:()=>void; progress?:ComparisonProgress|null; instance: InstanceResponse; comparison: ComparisonResponse | null; loading: boolean; error: string | null;
   busy: boolean; evolution: EvolutionProgressResponse | null; appliedRunId: string | null;
   onRetry: () => void; onRun: (method: Method) => void; onView: (method: Method) => void; }
-export function CompareScreen({ instance, comparison, loading, error, busy, evolution, appliedRunId, onRetry, onRun, onView, onCompare, onCancelComparison, progress }: Props) {
-  const sameProblem = comparison?.instance_id === instance.instance_id &&
-    (!instance.problem_fingerprint || comparison?.problem_fingerprint === instance.problem_fingerprint) &&
-    (!instance.matrix_fingerprint || comparison?.matrix_fingerprint === instance.matrix_fingerprint);
-  const measured = sameProblem ? comparison!.comparisons.filter(r => Number.isFinite(r.total_distance) && r.total_distance >= 0 && r.feasible !== false && r.execution?.status !== 'failed' &&
-    (!instance.problem_fingerprint || r.problem_fingerprint === instance.problem_fingerprint) &&
-    (!instance.matrix_fingerprint || r.matrix_fingerprint === instance.matrix_fingerprint)) : [];
-  const mismatch = !!comparison && (!sameProblem || measured.length !== comparison.comparisons.length);
-  const verified = measured.filter(r=>verifiedMeasurement(instance,r));
-  const best = recommendedResult(verified);
-  const alternative = best?.execution?.status === 'completed' ? verified.filter(r=>r.execution?.status==='incomplete' && r.total_distance<best.total_distance).sort((a,b)=>a.total_distance-b.total_distance)[0] : null;
-  const visibleMethods = [...new Set([...comparisonMethods,...verified.map(r=>r.method as Method)])];
-  const nn = measured.find(r => r.method === 'nearest_neighbor');
-  const final = measured.find(r => r.method === 'evolved');
-  const methods: Method[] = ['nearest_neighbor', '2opt', 'portfolio', 'vnd', 'vnd_ils', 'strategy', 'adaptive', ...(evolution || final ? ['evolved' as Method] : [])];
-  return <section className="stack compare-screen"><div className="page-heading"><div><h1>Compare routes</h1><p>Measured on the same {instance.num_stops} stops and {instance.num_drivers} drivers. Lower distance is better.</p></div><a className="button secondary" href="#routes">Back to routes</a></div>
-    <div className="panel comparison-action"><div><h2>Find a dependable route</h2><p>Compare a starting plan, a refined plan, and a trusted construction portfolio on these same stops.</p></div><button className="button primary" disabled={busy || loading} onClick={onCompare}>Run route comparison</button></div>
-    {progress && <div className="notice" role="status"><strong>{progress.status}</strong><p>{progress.stage}</p>{progress.errors.map(e=><p key={e}>{e}</p>)}{['running','cancelling'].includes(progress.status)&&<button className="text-button" onClick={onCancelComparison}>Cancel comparison</button>}</div>}
-    {!best && !loading && <p className="notice">No validated comparison result is available. Run or retry the comparison; diagnostics retain failed and unverified measurements.</p>}
-    {loading && <p role="status">Loading comparisons...</p>}
+
+export function CompareScreen({instance,comparison,loading,error,busy,evolution,onRetry,onRun,onView,onCompare,onCancelComparison,progress}:Props) {
+  const same=comparison?.instance_id===instance.instance_id && comparison.problem_fingerprint===instance.problem_fingerprint && comparison.matrix_fingerprint===instance.matrix_fingerprint;
+  const rows=comparison?.comparisons||[];
+  const complete=same?rows.filter(r=>completedMeasurement(instance,r)):[];
+  const best=recommendedResult(complete,instance);
+  const baseline=complete.find(r=>r.method==='nearest_neighbor');
+  const diagnosticGroups=[
+    {title:'Completed and verified results',rows:complete},
+    {title:'Feasible but incomplete measurements',rows:rows.filter(r=>same && r.server_verified && r.execution?.status==='incomplete')},
+    {title:'Failed evaluations',rows:rows.filter(r=>['failed','cancelled','interrupted'].includes(r.execution?.status||''))},
+    {title:'Unverified or mismatched records',rows:rows.filter(r=>!complete.includes(r) && !(same && r.server_verified && r.execution?.status==='incomplete') && !['failed','cancelled','interrupted'].includes(r.execution?.status||''))}
+  ];
+  const view=(method:Method)=>{if(complete.some(r=>r.method===method))onView(method);};
+  return <section className="stack compare-screen">
+    <PageHeading eyebrow="Route intelligence" title="Compare routes" description={`One plan. ${instance.num_stops} stops. ${instance.num_drivers} drivers. Compare completed routes on the same distance matrix.`} action={<a className="button secondary" href="#routes">Back to routes <Icon name="arrow" size={16}/></a>}/>
+    <div className="panel comparison-action"><div><h2>Find your best completed route</h2><p>Compare Nearest Neighbor, 2-Opt and the trusted construction portfolio.</p></div><button className="button primary" disabled={busy||loading} onClick={onCompare}><Icon name="compare" size={18}/>Run route comparison</button></div>
+    {progress && <div className="notice" role="status"><strong>{statusText(progress.status)}</strong><p>{progress.stage}</p>{progress.errors.map(e=><p key={e}>{e}</p>)}{['running','cancelling'].includes(progress.status)&&<button className="text-button" onClick={onCancelComparison}>Cancel comparison</button>}</div>}
+    {loading && <div className="panel loading-state" role="status"><span className="spinner"/>Verifying comparison results...</div>}
     {error && <div className="notice error" role="alert"><p>{error}</p><button className="button secondary" onClick={onRetry}>Retry comparison</button></div>}
-    {mismatch && <p className="notice error" role="alert">Unverified or mismatched results were excluded. Recalculate routes for this problem and matrix.</p>}
-    {best && <section className="best-measured" aria-label="Best valid measured result"><div><p className="eyebrow">{best.execution?.status==='completed'?'Best completed route':'Best incomplete route'}</p><h2>{methodNames[best.method as Method]}</h2><strong className="best-distance">{formatDistance(best.total_distance,instance.mode)}</strong><span className={`badge ${best.execution?.status==='incomplete'?'warning':''}`}>{completionText(best)}</span><p className="small muted">{best.execution?.status==='incomplete'?'Valid incumbent retained. The search stopped before completion.':'Measured on the selected problem and distance matrix.'}  Equal distances may be shared by other methods.</p></div><div className="best-context"><p className="eyebrow">Baseline: {baselineName}</p><p className="small">{savings(instance,best,nn) ? formatDistance(nn!.total_distance,instance.mode) : 'No valid baseline'}</p><p className="best-difference">{savingsText(instance,best,nn)}</p><p className="small muted">A measured recommendation, not a claim of global optimality.</p><button className="button secondary" disabled={busy} onClick={()=>onView(best.method as Method)}>Inspect recommended routes</button></div></section>}
-    {alternative && <section className="notice" aria-label="Shorter incomplete alternative"><strong>Shorter valid incumbent, search incomplete</strong><p>{methodNames[alternative.method as Method]}: {formatDistance(alternative.total_distance,instance.mode)}; {formatDistance(best!.total_distance-alternative.total_distance,instance.mode)} shorter than the completed recommendation. {completionText(alternative)}.</p><button className="text-button" disabled={busy} onClick={()=>onView(alternative.method as Method)}>Inspect incomplete alternative</button></section>}
-    <ComparisonBars rows={verified} mode={instance.mode} onView={onView} busy={busy} />
-    <div className="panel stack comparison-grid" style={{ display: 'block' }}>
-      <div className="section-heading"><h2>Fleet performance</h2><span className="badge">{instance.mode === 'road' ? 'Road distances' : 'Synthetic map units'}</span></div>
-      <p className="small muted">Historical Nearest Neighbor and NN + 2-Opt keep their original definitions. An incomplete search returned a validated plan within its limits; it did not complete the full search.</p>
-      <div className="method-options">{visibleMethods.map(method=>{const row=measured.find(r=>r.method===method);const rejected=sameProblem?comparison?.comparisons.find(r=>r.method===method):undefined;return <article className="method-option" key={method}><div><h3>{methodNames[method]}</h3><p>{row?formatDistance(row.total_distance,instance.mode):'No measured result'}</p><small>{row?`${statusText(row.execution?.status || 'measured')} / ${row.feasible?'Validated':'Feasibility not reported'}`:rejected?rejected.execution?.status==='failed'?'Failed evaluation':'Unverified result':'Not run'}</small></div>{row?<button className="text-button" disabled={busy} onClick={()=>onView(method)}>View {methodNames[method]} routes</button>:<a className="text-button" href="#routes">Open route controls</a>}</article>;})}</div>
-      <details className="comparison-diagnostics"><summary>Advanced / Experimental methods &amp; technical diagnostics</summary>
-      <div className="table-scroll"><table className="comparison-table"><caption>{instance.mode === 'road' ? 'Road distances from the selected matrix' : 'Synthetic distances in map units'} - percentages are relative to Nearest Neighbor</caption><thead><tr><th>Method</th><th>Total distance</th><th>Vs Nearest Neighbor</th><th>Longest driver</th><th>Runtime</th><th>Work</th><th>Status / feasibility</th><th>Routes</th></tr></thead><tbody>
-        {methods.map(method => {
-          const result = measured.find(r => r.method === method);
-          const rejected=sameProblem?comparison?.comparisons.find(r=>r.method===method):undefined;
-          return <tr key={method}><th scope="row">{methodNames[method]}</th><td>{result ? formatDistance(result.total_distance, instance.mode) : 'No measured result for this plan yet.'}</td>
-            <td>{result ? savings(instance,result,nn)?.comparison || 'Comparison unavailable' : 'Unavailable'}</td>
-            <td>{result ? formatDistance(result.longest_route_distance, instance.mode) : 'Unavailable'}</td><td>{result ? `${result.computation_time.toFixed(3)} s` : 'Unavailable'}</td>
-            <td>{result?.execution?.operations == null ? result ? 'Not instrumented' : 'Unavailable' : result.execution.operations.toLocaleString()}</td>
-            <td>{result ? <><span className={`badge ${result.execution?.status === 'incomplete' ? 'warning' : ''}`}>{statusText(result.execution?.status || 'measured')}</span><small className="cell-note">{result.feasible ? 'Validated' : 'Feasibility not reported'}{result.execution?.budget_exhausted ? ' - budget exhausted' : ''}</small><small className="cell-note">{result.execution ? statusText(result.execution.termination) : ''}</small></> : rejected ? rejected.execution?.status==='failed'?'Failed evaluation':'Unverified result' : 'Not run'}</td>
-            <td>{result ? <button className="text-button" disabled={busy} onClick={() => onView(method)}>View {methodNames[method]} routes</button> : method === 'strategy' || method === 'evolved' && evolution?.status !== 'completed'
-              ? <a className="text-button" href="#lab">Open Strategy Experiments</a>
-              : <button className="text-button" disabled={busy || loading} onClick={() => onRun(method)}>{method === 'evolved' ? 'Apply final route to this plan' : `Calculate ${methodNames[method]}`}</button>}</td></tr>;
-        })}
-      </tbody></table></div>
-      <p className="small muted">Compute budgets differ from historical uninstrumented baselines. Runtime measures solver work; road geometry retrieval is separate. No completed-only improvement is inferred from an incomplete result.</p>
-      {instance.matrix_fingerprint && <p className="small mono">Matrix {instance.matrix_fingerprint.slice(0, 16)} / problem {instance.problem_fingerprint?.slice(0, 16)}</p>}
-      </details>
-      {final?.optimization && <details><summary>Legacy heuristic non-regression selection</summary><PlanSelection selection={final.optimization} distance={final.total_distance} mode={instance.mode} /></details>}
-      {appliedRunId && final && <p className="small muted">Applied legacy run: {appliedRunId}</p>}
-    </div>
-    {best?.drivers?.length ? <section className="panel"><h2>Recommended driver routes</h2><p>{instance.num_drivers} drivers / {instance.num_stops} stops</p>{best.drivers.map(d=><div className="balance-row" key={d.driver_id}><span>Driver {d.driver_id+1} / {d.route.length-2} stops</span><strong>{formatDistance(d.distance,instance.mode)}</strong></div>)}</section>:null}
-    {measured.some(r => r.drivers?.length) && <details className="panel"><summary>Advanced driver distances & workloads</summary><p className="small muted">Balanced stop counts do not guarantee equal driving distances. Compare individual routes as well as the fleet total.</p><div className="balance-grid">{measured.filter(r => r.drivers?.length).map(result => <div key={result.method}><h3>{methodNames[result.method as Method]}</h3>{result.drivers!.map(driver => <div className="balance-row" key={driver.driver_id}><span>Driver {driver.driver_id + 1} / {driver.route.length - 2} stops</span><strong>{formatDistance(driver.distance, instance.mode)}</strong><div className="balance-track" aria-hidden="true"><span style={{ width: `${result.longest_route_distance > 0 ? driver.distance / result.longest_route_distance * 100 : 0}%` }} /></div></div>)}</div>)}</div></details>}
-    {evolution && <details className="panel"><summary>Legacy held-out research evaluation</summary><EvaluationSummary evolution={evolution} /></details>}
+    {!best&&!loading&&<EmptyState title="No completed validated route is available yet." description="Run a comparison or complete a route search. Earlier incomplete measurements remain in Technical diagnostics."/>}
+    {best&&<section className="best-measured" aria-label="Best completed validated result"><div><span className="badge success"><Icon name="check" size={14}/>Completed and verified</span><p className="eyebrow">Best completed route</p><h2>{methodNames[best.method as Method]||best.method}</h2><strong className="best-distance">{formatDistance(best.total_distance,instance.mode)}</strong><p className="small muted">Total fleet distance / {instance.mode==='road'?'road matrix':'synthetic coordinates'}</p></div><div className="best-context"><p className="eyebrow">Baseline: {baselineName}</p><p className="best-difference">{savingsText(instance,best,baseline)}</p><p className="small muted">Same stops, drivers and workload. A measured result, not proof of optimality.</p><button className="button primary" disabled={busy} onClick={()=>view(best.method as Method)}>Inspect recommended routes <Icon name="arrow" size={16}/></button></div></section>}
+    {!!complete.length&&<><ComparisonBars rows={complete} mode={instance.mode} onView={view} busy={busy}/><section className="panel comparison-grid"><div className="section-heading"><h2>Completed methods</h2><span className="badge">{complete.length} verified</span></div><div className="method-options">{complete.map(r=><article className="method-option" key={r.method}><div><h3>{methodNames[r.method as Method]||r.method}</h3><p>{formatDistance(r.total_distance,instance.mode)}</p><small>{savingsText(instance,r,baseline)}</small></div><button className="text-button" disabled={busy} onClick={()=>view(r.method as Method)}>View {methodNames[r.method as Method]} routes</button></article>)}</div></section></>}
+    {best&&<section className="panel driver-comparison"><div className="section-heading"><div><h2>Recommended driver routes</h2><p className="small muted">Workload and distance for the recommended completed plan.</p></div><span className="badge">Longest: {formatDistance(best.longest_route_distance,instance.mode)}</span></div><div className="driver-metrics">{best.drivers!.map(d=><div className="driver-metric" key={d.driver_id}><span className="driver-dot" style={{background:driverColor(d.driver_id)}}/><h3>Driver {d.driver_id+1}</h3><strong>{formatDistance(d.distance,instance.mode)}</strong><span>{d.route.length-2} stops</span><div className="balance-track"><span style={{background:driverColor(d.driver_id),width:`${best.longest_route_distance?d.distance/best.longest_route_distance*100:0}%`}}/></div></div>)}</div></section>}
+    <details className="panel comparison-diagnostics"><summary>Technical diagnostics <span className="badge">{rows.length} records</span></summary><p className="small muted">Incomplete, failed and unverified measurements are not recommendations and cannot be selected as current routes. Raw figures below are retained for diagnosis.</p>
+      {diagnosticGroups.map(group=><section key={group.title} className="diagnostic-group"><h3>{group.title}</h3>{!group.rows.length?<p className="small muted">No records.</p>:<div className="table-scroll"><table><caption>{group.title} / {instance.mode==='road'?'meters or kilometers':'map units'}</caption><thead><tr><th>Method</th><th>Distance</th><th>Longest route</th><th>Status / termination</th><th>Runtime / work</th></tr></thead><tbody>{group.rows.map((r,i)=><tr key={r.method+i}><th>{methodNames[r.method as Method]||r.method}</th><td>{formatDistance(r.total_distance,instance.mode)}</td><td>{formatDistance(r.longest_route_distance,instance.mode)}</td><td>{statusText(r.execution?.status)}<small className="cell-note">{statusText(r.execution?.termination)}{r.execution?.budget_exhausted?' / budget exhausted':''}</small></td><td>{r.computation_time.toFixed(3)} s<small className="cell-note">{r.execution?.operations??'Uninstrumented'} operations</small></td></tr>)}</tbody></table></div>}</section>)}
+      <p className="small muted">Budgets differ from historical uninstrumented baselines. Runtime excludes road geometry retrieval.</p><p className="small mono">Problem {instance.problem_fingerprint} / matrix {instance.matrix_fingerprint}</p>
+      <div className="actions">{(['nearest_neighbor','2opt','portfolio','vnd','vnd_ils'] as Method[]).map(method=><button className="button secondary" disabled={busy||loading} key={method} onClick={()=>onRun(method)}>Calculate {methodNames[method]}</button>)}</div>
+      {rows.filter(r=>r.optimization).map(r=><PlanSelection key={r.method} selection={r.optimization!} distance={r.total_distance} mode={instance.mode}/>)}
+      {evolution&&<EvaluationSummary evolution={evolution}/>}
+    </details>
   </section>;
 }

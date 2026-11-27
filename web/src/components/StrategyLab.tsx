@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import { activeStatus, statusText, watchTask } from '../services/product';
 import type { StartStrategyRequest, StrategyExperiment } from '../types/api';
+import { PageHeading, Icon } from './Design';
+import { trustedSeedComparison } from '../services/experiments';
 
 export const aiStrategyRequest: StartStrategyRequest = {
   workflow:'ai_product', arm:'llm', mode:'ollama',
@@ -105,6 +107,7 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
   };
   const best=state && ['completed','stopped'].includes(state.status) ? candidateRecommendation(state) : null;
   const evidence=state ? experimentEvidence(state,best?.strategy_id) : null;
+  const seedComparison=state && best ? trustedSeedComparison(state,best) : null;
   const failureMessage = state?.termination==='llm_unavailable' ? 'Ollama could not provide a valid strategy within the retry limit.'
     : state?.termination==='llm_proposal_limit' ? 'Ollama did not produce enough distinct supported proposals within the request limit.'
     : state?.termination==='time_limit' ? 'Evolution reached its time limit.'
@@ -117,11 +120,11 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
     } catch {setError('Export unavailable. Retry when the backend is reachable.');}
   };
   return <section className="stack strategy-lab" aria-label="Evolution">
-    <div className="page-heading"><h1>AI-guided strategy</h1><a href="#routes" className="button secondary">Back to route plan</a></div>
-    <p>The LLM proposes strategy configurations. The trusted routing engine evaluates them. It does not guarantee an optimal solution.</p>
+    <PageHeading eyebrow="Evolution / local intelligence" title="AI-guided strategy" description="The LLM proposes strategy configurations. The trusted routing engine evaluates them. It does not guarantee an optimal solution." action={<a href="#routes" className="button secondary">Back to route plan <Icon name="arrow" size={16}/></a>}/>
+    <ol className="evolution-steps" aria-label="Evolution workflow">{['Check Ollama','Run evolution','Review strategy','Apply to plan'].map((step,i)=><li key={step} data-active={i===(!providerReady?0:running?1:best?2:1)}><span>{i+1}</span>{step}</li>)}</ol>
     <form className="panel stack strategy-config" onSubmit={e=>{e.preventDefault();void start();}}>
-      <p><strong>Local Ollama / {request.provider.model}</strong></p>
-      <p role="status">{providerStatus?.message || 'Checking local Ollama...'}</p>
+      <div className="provider-heading"><span className="section-icon"><Icon name="lab" size={22}/></span><div><h2>Local Ollama</h2><p className="small muted">{request.provider.model}</p></div><span className={`badge ${providerReady?'success':'warning'}`}>{providerReady?'Available':'Not ready'}</span></div>
+      <p role="status" className="small muted">{providerStatus?.message || 'Checking local Ollama...'}</p>
       <p className="small muted">Two trusted starting strategies, then bounded LLM proposals. A strategy must complete both development cases before it can be applied. Applying runs it again on your current plan.</p>
       <div className="actions"><button type="button" className="button secondary" disabled={sending||running} onClick={()=>setCheckAttempt(n=>n+1)}>Check Ollama</button>
         <button className="button primary" type="submit" disabled={!providerReady||sending||running}>{sending?'Starting...':'Run evolution'}</button></div>
@@ -131,11 +134,13 @@ export function StrategyLab({ hasInstance, applying, onApply, onStatus }: {
       <div className="section-heading"><h2>{running?'Evaluating strategies':best?'Strategy ready':'No fully evaluated strategy was produced'}</h2>
         {running && <button className="button secondary" disabled={state.status==='cancelling'} onClick={cancel}>Cancel evolution</button>}</div>
       {running && <p role="status">Round {Math.min((state.generation||0)+1,2)} of 2 / {evidence?.completed||0} case searches completed. {statusText(state.status)}</p>}
+      {running && <progress aria-label="Completed case searches" value={evidence?.completed||0} max={8}/>}
       {!running && !best && <p className="notice">{failureMessage} No strategy is available to apply. Your current routes are unchanged.</p>}
       {best && <div className="winner-card"><p className="eyebrow">Completed evaluation</p><h3>Strategy {best.strategy_id.slice(-12)}</h3>
-        <p>{best.fitness.mean_distance?.toFixed(2)} map units / mean development-case distance</p>
-        <p>{best.fitness.completed} of {best.fitness.expected_cases} cases completed and independently validated.</p>
+        <dl className="winner-metrics"><div><dt>Mean development distance</dt><dd>{best.fitness.mean_distance?.toFixed(2)} <small>map units</small></dd></div><div><dt>Completed cases</dt><dd>{best.fitness.completed} / {best.fitness.expected_cases}</dd></div></dl>
+        <p className="small">{best.fitness.completed} of {best.fitness.expected_cases} cases completed and independently validated.</p>
         <p>Construction: {statusText(String(best.config.construction))}. Operators: {(best.config.operators as string[]).map(statusText).join(', ')}.</p>
+        {seedComparison && <div className="seed-comparison"><strong>{seedComparison.difference>0?'Shorter than the trusted start':seedComparison.difference<0?'Longer than the trusted start':'Tied with the trusted start'}</strong><p className="small">Best fully completed trusted seed: {seedComparison.seed_mean.toFixed(2)} map units. {Math.abs(seedComparison.difference).toFixed(2)} map units {seedComparison.difference<0?'longer':'saved'}{seedComparison.percentage==null?' / percentage unavailable (zero baseline)':seedComparison.difference===0?' / same distance':` / ${Math.abs(seedComparison.percentage).toFixed(1)}% ${seedComparison.difference<0?'longer':'shorter'}`}.</p><p className="small muted">Same {seedComparison.cases} development cases and solver budgets. This comparison does not establish AI superiority.</p></div>}
         <p className="small muted">This score is not the distance for your current plan or evidence of AI superiority. Applying uses a size-aware allowance of up to 500,000 operations / 30 seconds. Only a completed validated result replaces your current route.</p>
         <button className="button primary" disabled={!hasInstance||applying||!!error} onClick={()=>jobId&&onApply(jobId,best.strategy_id)}>Apply to current plan</button>
         {!hasInstance && <p>Create or generate a route plan before applying.</p>}</div>}

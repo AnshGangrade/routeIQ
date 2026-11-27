@@ -7,7 +7,7 @@ const {CompactResults}=require('../src/components/CompactResults.tsx');
 const {RouteExplanation}=require('../src/components/RouteExplanation.tsx');
 const {CompareScreen}=require('../src/components/CompareScreen.tsx');
 const instance={instance_id:'plan',problem_fingerprint:'problem',matrix_fingerprint:'matrix',distance_units:'meters',mode:'road',num_stops:3,num_drivers:2,stops:[1,2,3].map(stop_id=>({stop_id}))};
-const baseline={...instance,method:'nearest_neighbor',feasible:true,total_distance:1000,longest_route_distance:600,computation_time:.1,execution:{status:'completed'},drivers:[{driver_id:0,route:[0,1,2,0],distance:600,duration:120},{driver_id:1,route:[0,3,0],distance:400,duration:60}]};
+const baseline={...instance,method:'nearest_neighbor',feasible:true,total_distance:1000,longest_route_distance:600,computation_time:.1,server_verified:true,execution:{status:'completed',termination:'historical_baseline_complete'},drivers:[{driver_id:0,route:[0,1,2,0],distance:600,duration:120},{driver_id:1,route:[0,3,0],distance:400,duration:60}]};
 const result={...baseline,method:'vnd',total_distance:800,longest_route_distance:400,computation_time:.25,drivers:baseline.drivers.map(d=>({...d,distance:400})),execution:{status:'incomplete',termination:'operation_budget',budget_exhausted:true,raw_events:[
  {stage:'construction',method:'legacy_2opt',raw_distance:1000,retained_distance:1000,accepted:true,status:'completed'},
  {stage:'vnd',method:'cross_relocate',raw_distance:800,retained_distance:800,accepted:true,status:'completed'},
@@ -75,8 +75,8 @@ test('insight controls focus the measured driver or the fleet, with no invented 
 test('comparison recommends completion and keeps a shorter incomplete alternative',()=>{
  const comparison={...instance,comparisons:[baseline,result,{...result,method:'adaptive',total_distance:1,feasible:false}]};
  const html=el(CompareScreen,{instance,comparison});
- assert.match(html,/Best completed route/);assert.match(html,/Shorter incomplete alternative/);assert.match(html,/800 m/);assert.match(html,/Valid incumbent/);
- assert.match(html,/200 m shorter than the completed recommendation/);assert.doesNotMatch(html,/99.9% shorter|<details[^>]* open/);
+ assert.match(html,/Best completed validated result/);assert.match(html,/800 m/);assert.match(html,/Feasible but incomplete measurements/);assert.doesNotMatch(html.split('<details')[0],/800 m|Shorter incomplete alternative/);
+ assert.doesNotMatch(html,/200 m shorter than the completed recommendation/);assert.doesNotMatch(html,/99.9% shorter|<details[^>]* open/);
  assert.match(completionText(result),/budget reached/);
 });
 test('legacy comparisons without fingerprints or feasibility cannot display percentage savings',()=>{
@@ -88,9 +88,10 @@ test('legacy comparisons without fingerprints or feasibility cannot display perc
 test('unknown distance units cannot establish savings even with matching fingerprints',()=>{
  assert.equal(savings({...instance,distance_units:undefined},{...result,distance_units:undefined},{...baseline,distance_units:undefined}),null);
 });
-test('unknown legacy completion never outranks an explicitly incomplete measured route',()=>{
+test('neither legacy completion nor incomplete evidence can be recommended',()=>{
  const {recommendedResult}=require('../src/services/comparison.ts');
  assert.equal(recommendedResult([{...baseline,execution:undefined}]),null);
- assert.equal(recommendedResult([{...baseline,execution:undefined,total_distance:1},result]),result);
+ assert.equal(recommendedResult([{...baseline,execution:undefined,total_distance:1},result],instance),null);
+ assert.equal(recommendedResult([baseline,result],instance),baseline);
  assert.equal(savings(instance,result,{...baseline,execution:undefined}),null);
 });

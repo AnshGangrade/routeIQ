@@ -1,11 +1,20 @@
 import type { InstanceResponse, MethodComparison, RoutingResultResponse } from '../types/api';
 import { formatDistance } from './distance';
 import { differenceText } from './workflow';
-import { validateRouteResult } from './product';
+import { validateRouteResult, validateCompletedResult } from './product';
 
 type Measured = MethodComparison | RoutingResultResponse;
 export const baselineName = 'Nearest Neighbor (historical)';
 const finiteDistance = (n: number) => Number.isFinite(n) && n >= 0;
+
+export function completedMeasurement(instance: InstanceResponse, row?: Measured | null): row is Measured {
+  if (!row || !verifiedMeasurement(instance,row) || !row.drivers?.length ||
+      (!('instance_id' in row) && row.server_verified!==true)) return false;
+  try {
+    validateCompletedResult(instance,{...row,instance_id:instance.instance_id,drivers:row.drivers} as RoutingResultResponse);
+    return true;
+  } catch { return false; }
+}
 
 /** No percentages from legacy rows with unknown identity or validation. */
 export function verifiedMeasurement(instance: InstanceResponse, row?: Measured | null): row is Measured {

@@ -43,7 +43,7 @@ test('driver colors survive selection and baseline patterns in map styles',()=>{
 test('palette uses distinct muted colors and chart nodes preserve source labels',()=>{
  for(let i=0;i<20;i++)assert.ok(new Set(driverColor(i).slice(1).match(/../g)).size>1);
  const html=el(Lineage,{records:[{strategy_id:'winner',generation:0,creation_method:'seed',parents:[]}],bestId:'winner',offline:true});
- assert.match(html,/fill="#D9B65A"/);assert.match(html,/Hand-authored/);
+ assert.match(html,/fill="var\(--color-primary\)"/);assert.match(html,/Hand-authored/);
 });
 test('chart statistics ignore failed, nonfinite and negative observations but retain zero',()=>{
  assert.deepEqual(finiteSeries([null,NaN,Infinity,-1,0,12]),{min:0,max:12,count:2});
@@ -64,9 +64,9 @@ test('lineage draws only recorded relationships, and distinguishes offline fixtu
  assert.match(html,/Hand-authored/);assert.match(html,/Offline fixture/);assert.doesNotMatch(html,/LLM proposal/);
  assert.equal(sourceLabel('llm',false),'LLM proposal');assert.equal(sourceLabel('mutation',true),'Mutation');
 });
-test('distance chart preserves zero and incomplete status without inventing percent gains',()=>{
- const html=el(ComparisonBars,{mode:'road',busy:false,onView(){},rows:[{method:'nearest_neighbor',total_distance:0},{method:'vnd',total_distance:1000,execution:{status:'incomplete'}},{method:'2opt',total_distance:NaN}]});
- assert.match(html,/0 m/);assert.match(html,/1.00 km/);assert.match(html,/Incomplete search/);
+test('distance chart retains completed zero and excludes incomplete results',()=>{
+ const html=el(ComparisonBars,{mode:'road',busy:false,onView(){},rows:[{method:'nearest_neighbor',total_distance:0,execution:{status:'completed'}},{method:'vnd',total_distance:1000,execution:{status:'incomplete'}},{method:'2opt',total_distance:NaN}]});
+ assert.match(html,/0 m/);assert.doesNotMatch(html,/1.00 km|Incomplete search/);
  assert.doesNotMatch(html,/NaN|2-Opt|% shorter/);assert.match(html,/width:0%/);
 });
 test('empty research notebook discloses missing validation and held-out evidence',()=>{
@@ -94,35 +94,38 @@ test('candidate comparison handles a pending record before evaluation fields arr
 
 const {CompareScreen}=require('../src/components/CompareScreen.tsx');
 function quietComparison(rows) {
- return el(CompareScreen,{instance:{instance_id:'a',mode:'synthetic',num_stops:5,num_drivers:2,distance_units:'map_units',matrix_fingerprint:'m',problem_fingerprint:'p'},comparison:{instance_id:'a',matrix_fingerprint:'m',problem_fingerprint:'p',comparisons:rows},loading:false,error:null,busy:false,evolution:null,onRetry(){},onRun(){},onView(){}});
+ return el(CompareScreen,{instance:{instance_id:'a',mode:'synthetic',num_stops:5,num_drivers:2,stops:[1,2,3,4,5].map(stop_id=>({stop_id})),distance_units:'map_units',matrix_fingerprint:'m',problem_fingerprint:'p'},comparison:{instance_id:'a',matrix_fingerprint:'m',problem_fingerprint:'p',comparisons:rows},loading:false,error:null,busy:false,evolution:null,onRetry(){},onRun(){},onView(){}});
 }
-const quietRow=(method,distance,status='completed')=>({method,total_distance:distance,longest_route_distance:distance,computation_time:.01,feasible:true,distance_units:'map_units',matrix_fingerprint:'m',problem_fingerprint:'p',execution:{status,termination:'budget_exhausted',operations:100}});
-test('Quiet Atlas highlights the shortest valid incomplete incumbent with honest status',()=>{
+const quietRow=(method,distance,status='completed')=>({method,total_distance:distance,longest_route_distance:distance/2,server_verified:true,drivers:[{driver_id:0,route:[0,1,2,3,0],distance:distance/2},{driver_id:1,route:[0,4,5,0],distance:distance/2}],computation_time:.01,feasible:true,distance_units:'map_units',matrix_fingerprint:'m',problem_fingerprint:'p',execution:{status,termination:status==='completed'?'local_search_complete':'operation_budget',budget_exhausted:status==='incomplete',operations:100}});
+test('only incomplete comparisons remain collapsed diagnostics without a recommendation',()=>{
  const html=quietComparison([quietRow('nearest_neighbor',100,'incomplete'),quietRow('portfolio',80,'incomplete')]);
- const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
- assert.match(hero,/80.00 map units/);assert.match(hero,/incomplete/);assert.match(hero,/20.0% shorter/);assert.match(hero,/stopped before completion/);
- assert.match(html,/<details class="comparison-diagnostics">/);
+ const main=html.split('<details')[0];
+ assert.match(main,/No completed validated route is available yet/);
+ assert.doesNotMatch(main,/80.00|100.00|% shorter|fleet distance chart|View routes/);
+ assert.match(html,/80.00 map units/);assert.match(html,/operation budget reached/);
+ assert.match(html,/<details class="panel comparison-diagnostics">/);assert.doesNotMatch(html,/<details[^>]* open/);
 });
+
 test('Quiet Atlas excludes failed and mismatched results from best measured selection',()=>{
  const bad=quietRow('vnd_ils',1);bad.matrix_fingerprint='other';
  const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('vnd',2,'failed'),bad]);
- const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
- assert.match(hero,/100.00 map units/);assert.doesNotMatch(hero,/2.00 map units|1.00 map units/);assert.match(html,/Failed evaluation/);assert.match(html,/Unverified result/);
+ const hero=html.slice(html.indexOf('aria-label="Best completed validated result"'),html.indexOf('aria-label="Completed fleet distance chart"'));
+ assert.match(hero,/100.00 map units/);assert.doesNotMatch(hero,/2.00 map units|1.00 map units/);assert.match(html,/Failed evaluation/);assert.match(html,/Unverified or mismatched records/);
 });
 
 test('completed comparison result takes recommendation priority over a shorter incomplete incumbent',()=>{
  const html=quietComparison([quietRow('nearest_neighbor',100),quietRow('portfolio',80,'incomplete')]);
- const hero=html.slice(html.indexOf('aria-label="Best valid measured result"'),html.indexOf('aria-label="Measured fleet distance chart"'));
+ const hero=html.slice(html.indexOf('aria-label="Best completed validated result"'),html.indexOf('aria-label="Completed fleet distance chart"'));
  assert.match(hero,/100.00 map units/);assert.match(html,/80.00 map units/);assert.match(html,/incomplete/);
 });
 test('no valid comparison result is actionable and never creates a recommendation',()=>{
  const html=quietComparison([quietRow('portfolio',1,'failed')]);
- assert.doesNotMatch(html,/aria-label="Best valid measured result"/);assert.match(html,/No validated comparison result/);assert.match(html,/Run route comparison/);
+ assert.doesNotMatch(html,/aria-label="Best completed validated result"/);assert.match(html,/No completed validated route is available yet/);assert.match(html,/Run route comparison/);
 });
 
 const {ComparisonRun}=require('../src/services/comparison.ts');
-const presetInstance={instance_id:'a',num_stops:1,num_drivers:1,stops:[{stop_id:1}],matrix_fingerprint:'m',problem_fingerprint:'p'};
-const presetResult=method=>({instance_id:'a',method,feasible:true,total_distance:2,matrix_fingerprint:'m',problem_fingerprint:'p',drivers:[{driver_id:0,route:[0,1,0],distance:2}],execution:{status:'completed'}});
+const presetInstance={instance_id:'a',distance_units:'map_units',num_stops:1,num_drivers:1,stops:[{stop_id:1}],matrix_fingerprint:'m',problem_fingerprint:'p'};
+const presetResult=method=>({instance_id:'a',method,distance_units:'map_units',longest_route_distance:2,feasible:true,total_distance:2,matrix_fingerprint:'m',problem_fingerprint:'p',drivers:[{driver_id:0,route:[0,1,0],distance:2}],execution:{status:'completed',termination:'local_search_complete'}});
 test('one comparison invocation uses one identity, fixed budgets and rejects repeated starts',async()=>{
  const calls=[],received=[],progress=[];
  const client={solveRouting:async body=>{calls.push(body);return presetResult(body.method);},startOptimization:async body=>{calls.push(body);return {job_id:'j',instance_id:'a',method:'portfolio'};},optimizationStatus:async()=>({job_id:'j',instance_id:'a',method:'portfolio',matrix_fingerprint:'m',problem_fingerprint:'p',status:'completed',result:presetResult('portfolio')})};
@@ -165,4 +168,37 @@ test('completed experiment loop never hides incomplete or failed evaluations in 
  assert.equal(experimentStatus({status:'completed',records:{a:{fitness:{incomplete:2,failed:0}}}}),'Finished with incomplete evaluations');
  assert.equal(experimentStatus({status:'completed',records:{a:{fitness:{incomplete:0,failed:1}}}}),'Finished with evaluation failures');
  assert.equal(experimentStatus({status:'cancelled',records:{}}),'cancelled');
+});
+
+
+test('comparison never publishes a feasible incomplete incumbent to primary route state',async()=>{
+ const received=[],progress=[];
+ const incomplete={...presetResult('portfolio'),execution:{status:'incomplete',termination:'operation_budget',budget_exhausted:true}};
+ const client={solveRouting:async body=>presetResult(body.method),startOptimization:async()=>({job_id:'j',instance_id:'a',method:'portfolio'}),optimizationStatus:async()=>({job_id:'j',instance_id:'a',method:'portfolio',matrix_fingerprint:'m',problem_fingerprint:'p',status:'incomplete',result:incomplete})};
+ await new ComparisonRun(presetInstance,p=>progress.push(p),r=>received.push(r),client).run();
+ assert.deepEqual(received.map(r=>r.method),['nearest_neighbor','2opt']);
+ assert.equal(progress.at(-1).status,'incomplete');
+});
+
+test('completed recommendation rejects contradictory completion and forged metrics',()=>{
+ const {completedMeasurement}=require('../src/services/routeEvidence.ts');
+ const valid=presetResult('portfolio');
+ assert.equal(completedMeasurement(presetInstance,valid),true);
+ for(const patch of [{longest_route_distance:NaN},{longest_route_distance:3},{total_distance:3},
+   {execution:{...valid.execution,schedule_completed:false}},
+   {execution:{...valid.execution,neighborhoods_truncated:1}},
+   {execution:{...valid.execution,budget_exhausted:true}},
+   {execution:{...valid.execution,termination:'deadline'}}])
+   assert.equal(completedMeasurement(presetInstance,{...valid,...patch}),false);
+ const {instance_id,...cached}=valid;
+ assert.equal(completedMeasurement(presetInstance,cached),false);
+ assert.equal(completedMeasurement(presetInstance,{...cached,server_verified:true}),true);
+});
+
+
+test('contradictory completed comparison metrics are reported as failures instead of silent success',async()=>{
+ const received=[],progress=[];
+ const client={solveRouting:async body=>({...presetResult(body.method),longest_route_distance:99}),startOptimization:async()=>{throw Error('unavailable')}};
+ await new ComparisonRun(presetInstance,p=>progress.push(p),r=>received.push(r),client).run();
+ assert.equal(received.length,0);assert.equal(progress.at(-1).status,'failed');assert.equal(progress.at(-1).errors.length,3);
 });

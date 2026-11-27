@@ -219,6 +219,7 @@ class MethodComparison(BaseModel):
     matrix_fingerprint: Optional[str] = None
     distance_units: Optional[str] = None
     feasible: Optional[bool] = None
+    server_verified: bool = False
     drivers: List[DriverRouteResponse] = Field(default_factory=list)
     execution: Optional[Dict[str, Any]] = None
 

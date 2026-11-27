@@ -87,7 +87,7 @@ export function InteractiveMap({
         >
           <Popup>
             <div className="text-sm">
-              <strong className="text-[#191919]">Depot</strong>
+              <strong className="text-[var(--color-text)]">Depot</strong>
               <br />
               Lat: {depotLat.toFixed(6)}
               <br />
@@ -109,7 +109,7 @@ export function InteractiveMap({
             )
           );
           
-          const color = driver ? driverColor(driver.driver_id) : '#6D6D69';
+          const color = driver ? driverColor(driver.driver_id) : 'var(--color-text-muted)';
           const isSelected = driver && (selectedDriverId === null || selectedDriverId === driver.driver_id);
           
           return (
@@ -149,7 +149,7 @@ export function InteractiveMap({
           {routingResult?.drivers.map(driver => {
             const style=mapRouteStyle(routingResult.method,selectedDriverId===null || selectedDriverId===driver.driver_id,driver.driver_id);
             if(!style.casing || !driver.geometry || driver.geometry.length<2 || driver.geometry_error)return null;
-            return <Polyline key={driver.driver_id} positions={driver.geometry.map(coord=>[coord[0],coord[1]])} pathOptions={{color:'#191919',weight:7,opacity:1,className:'route-casing'}} interactive={false}/>;
+            return <Polyline key={driver.driver_id} positions={driver.geometry.map(coord=>[coord[0],coord[1]])} pathOptions={{color:'var(--color-text)',weight:7,opacity:1,className:'route-casing'}} interactive={false}/>;
           })}
         </Pane>
         <Pane name="route-strokes" style={{zIndex:420}}>
@@ -193,7 +193,7 @@ export function InteractiveMap({
                   <br />
                   Stops: {driver.route.filter(id => id !== 0).length}
                   <br />
-                  <span className="text-xs text-[#6D6D69]">
+                  <span className="text-xs text-[var(--color-text-muted)]">
                     {routingStatus}
                   </span>
                 </div>

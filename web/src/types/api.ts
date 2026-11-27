@@ -171,6 +171,7 @@ export interface BestHeuristicResponse {
 
 // Comparison Models
 export interface MethodComparison {
+  server_verified?: boolean;
   method: string;
   total_distance: number;
   longest_route_distance: number;
@@ -243,6 +244,7 @@ export interface StrategyRecord {
   evaluation_history?: Array<{rows:Array<{feasible:boolean;status:string;case_id:string;independently_validated?:boolean;termination?:string}>}>;
 }
 export interface StrategyExperiment {
+  seed_comparison?: {verified:boolean;winner_id:string;seed_id:string;winner_mean:number;seed_mean:number;difference:number;percentage:number|null;cases:number;distance_units:string}|null;
   proposal_events?: Array<{source:string;outcome:string;strategy_id?:string}>;
   job_id?: string; experiment_id?: string; status: string; termination?: string | null;
   generation?: number; best_id?: string | null; population?: string[]; records?: Record<string, StrategyRecord>;

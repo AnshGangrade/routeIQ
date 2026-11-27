@@ -76,8 +76,8 @@ export function LocationPicker({
           onClick={() => setClickMode(clickMode === 'depot' ? 'none' : 'depot')}
           className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
             clickMode === 'depot'
-              ? 'bg-[#D9B65A] text-[#191919] border-[#191919]'
-              : 'bg-white text-[#191919] border-[#E1DFD7] hover:bg-[#F6F5F0]'
+              ? 'bg-[var(--color-primary)] text-[var(--color-text)] border-[var(--color-text)]'
+              : 'bg-white text-[var(--color-text)] border-[var(--color-border)] hover:bg-[var(--color-surface-secondary)]'
           }`}
         >
           {clickMode === 'depot' ? 'Click map for depot' : 'Set Depot'}
@@ -89,8 +89,8 @@ export function LocationPicker({
           onClick={() => setClickMode(clickMode === 'stop' ? 'none' : 'stop')}
           className={`flex-1 px-3 py-2 text-sm rounded-md border transition-colors ${
             clickMode === 'stop'
-              ? 'bg-[#D9B65A] text-[#191919] border-[#191919]'
-              : 'bg-white text-[#191919] border-[#E1DFD7] hover:bg-[#F6F5F0]'
+              ? 'bg-[var(--color-primary)] text-[var(--color-text)] border-[var(--color-text)]'
+              : 'bg-white text-[var(--color-text)] border-[var(--color-border)] hover:bg-[var(--color-surface-secondary)]'
           }`}
         >
           {clickMode === 'stop' ? 'Click map for stops' : 'Add Stops'}
@@ -99,7 +99,7 @@ export function LocationPicker({
           <button
             type="button"
             onClick={() => setClickMode('none')}
-            className="px-3 py-2 text-sm rounded-md border border-[#E1DFD7] bg-white text-[#191919] hover:bg-[#F6F5F0]"
+            className="px-3 py-2 text-sm rounded-md border border-[var(--color-border)] bg-white text-[var(--color-text)] hover:bg-[var(--color-surface-secondary)]"
           >
             Cancel
           </button>
@@ -108,10 +108,10 @@ export function LocationPicker({
 
       {/* Instruction text */}
       {!readOnly && clickMode !== 'none' && (
-        <div className="text-xs text-[#191919] bg-[#F6F5F0] border border-[#E1DFD7] rounded p-2">
+        <div className="text-xs text-[var(--color-text)] bg-[var(--color-surface-secondary)] border border-[var(--color-border)] rounded p-2">
           {clickMode === 'depot' 
-            ? '👆 Click anywhere on the map to set the depot location'
-            : '👆 Click anywhere on the map to add a delivery stop'
+            ? 'Click anywhere on the map to set the depot location'
+            : 'Click anywhere on the map to add a delivery stop'
           }
         </div>
       )}
@@ -160,7 +160,7 @@ export function LocationPicker({
             >
               <Popup>
                 <div className="text-sm">
-                  <strong className="text-[#191919]">Depot</strong>
+                  <strong className="text-[var(--color-text)]">Depot</strong>
                   <br />
                   {readOnly ? 'Selected depot' : 'Drag to reposition'}
                 </div>
@@ -202,7 +202,7 @@ export function LocationPicker({
                     {!readOnly && <button
                       type="button"
                       onClick={() => onStopRemove(idx)}
-                      className="mt-2 text-xs text-[#191919] hover:underline underline"
+                      className="mt-2 text-xs text-[var(--color-text)] hover:underline underline"
                     >
                       Remove
                     </button>}
@@ -215,14 +215,14 @@ export function LocationPicker({
       </div>
 
       {/* Summary */}
-      <div className="text-sm text-[#6D6D69] space-y-1">
+      <div className="text-sm text-[var(--color-text-muted)] space-y-1">
         <div className="flex items-center justify-between">
           <span>Depot: {hasValidDepot ? 'Set' : 'Not set'}</span>
           {hasValidDepot && !readOnly && onDepotClear && (
             <button
               type="button"
               onClick={onDepotClear}
-              className="text-xs text-[#191919] hover:underline"
+              className="text-xs text-[var(--color-text)] hover:underline"
             >
               <Icon name="close" size={14}/> Clear
             </button>
@@ -239,7 +239,7 @@ export function LocationPicker({
                   onStopRemove(i);
                 }
               }}
-              className="text-xs text-[#191919] hover:underline"
+              className="text-xs text-[var(--color-text)] hover:underline"
             >
               Clear All
             </button>

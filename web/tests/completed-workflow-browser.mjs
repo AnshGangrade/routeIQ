@@ -91,7 +91,17 @@ try {
     const selector = await evaluate(`(() => { const label = [...document.querySelectorAll('label')].find(e => e.firstChild?.textContent.trim() === ${JSON.stringify(text)}); const el = label?.querySelector('input,select'); if (!el) throw new Error('Missing label: '+${JSON.stringify(text)}); el.setAttribute('data-fill', 'target'); return '[data-fill="target"]'; })()`);
     await fill(selector, value); await evaluate(`document.querySelector('[data-fill="target"]').removeAttribute('data-fill')`);
   };
-  const screenshot = async (name, fromTop = true) => { if (fromTop) await evaluate('window.scrollTo(0,0)'); await delay(200); const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); writeFileSync(path.join(output, name + '.png'), Buffer.from(data, 'base64')); };
+  const screenshot = async name => {
+    const previous=await evaluate('[innerWidth,innerHeight]');
+    for(const [width,height] of [[1440,900],[1280,800],[768,1024],[390,844]]) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await delay(250);
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,`${name} overflow at ${width}`);
+      if(name==='05-road-routes') assert.equal(await evaluate(`(() => {const box=document.querySelector('.road-map').getBoundingClientRect();return [...document.querySelectorAll('.road-map .leaflet-marker-icon')].every(el=>{const r=el.getBoundingClientRect();return r.left>=box.left && r.right<=box.right && r.top>=box.top && r.bottom<=box.bottom;});})()`),true,`Road markers fit at ${width}`);
+      const {data}=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+      writeFileSync(path.join(output,`${name}-${width}.png`),Buffer.from(data,'base64'));
+    }
+    await send('Emulation.setDeviceMetricsOverride',{width:previous[0],height:previous[1],deviceScaleFactor:1,mobile:false});
+  };
   const check = name => { checks.push(name); console.log('PASS ' + name); };
 
   const json = async (url, body) => {
@@ -101,7 +111,7 @@ try {
   const planId=()=>evaluate(`document.querySelector('.instance-id')?.title`);
   const strategyResult=async()=> (await json(`/api/results/${await planId()}/comparison`)).comparisons.find(r=>r.method==='strategy');
   await send('Page.navigate',{url:base});
-  await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
+  await waitFor(`!!document.querySelector('.home')`);
   await delay(1500);
   await click('Create route plan');
   await fill(labelInput('Delivery stops'),10);
@@ -110,6 +120,11 @@ try {
   await waitFor(`document.querySelector('.route-summary')?.textContent.includes('map units')`);
   const firstPlan=await planId();
   check('Generate Plan returns a completed independently validated baseline');
+  await click('Optimize Routes');
+  await waitFor(`document.querySelector('select[aria-label="Displayed route method"]')?.value==='vnd'`);
+  const hybrid=(await json(`/api/results/${firstPlan}/comparison`)).comparisons.find(r=>r.method==='vnd');
+  assert.ok(hybrid.server_verified && hybrid.execution.status==='completed');
+  check('Hybrid optimization completes and publishes independently verified routes');
   await click('Evolution','nav a');
   await waitFor(`document.querySelector('.strategy-config button[type="submit"]')?.disabled===false`);
   assert.equal(await evaluate(`document.querySelectorAll('.strategy-lab select,.strategy-lab input[type="radio"]').length`),0);
@@ -122,7 +137,12 @@ try {
   await waitFor(`document.querySelector('.winner-card')?.textContent.includes('2 of 2 cases completed')`);
   const start=requests.find(r=>r.pathname==='/api/strategy-experiments' && r.body);
   assert.equal(start.body.workflow,'ai_product');assert.equal(start.body.mode,'ollama');assert.equal(start.body.arm,'llm');
+  await waitFor(`!!document.querySelector('.seed-comparison')`);
+  assert.match(await evaluate(`document.querySelector('.seed-comparison').textContent`),/Same 2 development cases and solver budgets/);
   await screenshot('01-completed-strategy');
+  await evaluate(`document.querySelector('.seed-comparison').scrollIntoView({block:'center'})`);
+  await screenshot('01a-trusted-seed-comparison');
+  await evaluate('window.scrollTo(0,0)');
   check('Actual engine evaluates mocked LLM proposals and publishes one complete-panel strategy');
   await click('Apply to current plan');
   await waitFor(`location.hash==='#routes' && document.querySelector('select[aria-label="Displayed route method"]')?.value==='strategy' `);
@@ -155,6 +175,29 @@ try {
   await waitFor(`document.querySelector('.strategy-progress')?.textContent.includes('Evolution was cancelled')`);
   assert.equal(await evaluate(`document.querySelector('.winner-card')===null`),true);
   check('Cancellation reaches terminal state with no applyable winner');
+  await click('Route Plan','nav a');await click('Edit Plan');
+  await evaluate(`document.querySelectorAll('input[name="route-mode"]')[1].click()`);
+  await fill(labelInput('Delivery stops'),5);await fillLabel('Number of drivers',2);
+  await fillLabel('Depot longitude',13.4);await fillLabel('Depot latitude',52.5);await fillLabel('How to add stops','manual');
+  for(let i=0;i<5;i++){await click('Add stop');await fill(`#lon-${i}`,13.41+i/1000);await fill(`#lat-${i}`,52.51+i/1000);}
+  await fillLabel('How to add stops','map');await waitFor(`document.querySelectorAll('.leaflet-marker-icon').length===6`);
+  await screenshot('04-road-draft');
+  await click('Generate Plan');await waitFor(`!!document.querySelector('.road-map path.leaflet-interactive')`);
+  const road=await json(`/api/results/${await planId()}/comparison`);
+  assert.ok(road.comparisons.every(r=>r.server_verified && r.distance_units==='meters' && r.drivers.every(d=>d.geometry?.length>2)));
+  await screenshot('05-road-routes');
+  await evaluate(`document.querySelector('.driver-select').click()`);
+  await waitFor(`!!document.querySelector('.driver-itinerary')`);
+  await evaluate(`document.querySelector('.driver-itinerary').scrollIntoView({block:'center'})`);
+  await screenshot('06-driver-itinerary');
+  await evaluate(`document.querySelector('.leaflet-marker-icon[title="Delivery stop 1"]').click()`);
+  await waitFor(`!!document.querySelector('.driver-itinerary button[aria-pressed="true"]')`);
+  check('Real API road matrix and returned fixture geometry preserve driver and marker selection at every viewport');
+  await click('Compare','nav a');
+  await waitFor(`!!document.querySelector('[aria-label="Best completed validated result"]')`);
+  assert.equal(await evaluate(`document.querySelector('.comparison-diagnostics').open`),false);
+  await screenshot('07-road-comparison');
+  check('Real API comparison independently verifies both completed historical baselines');
   assert.deepEqual(errors,[]);check('No browser runtime exceptions');
   writeFileSync(path.join(output,'results.json'),JSON.stringify({checks,failures:[],provider:'MockTransport Ollama fixture; not live',actualSolver:true,blockedExternalRequests:blocked.length},null,2));
   console.log(`Completed workflow browser: ${checks.length} passed, 0 failed`);

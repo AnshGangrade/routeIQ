@@ -81,7 +81,7 @@ def test_server_comparison_revalidates_cost_identity_units_and_zero(change):
     row=RoutingResultResponse(instance_id='x',method='nearest_neighbor',feasible=True,
         total_distance=0,longest_route_distance=0,computation_time=0,
         matrix_fingerprint=p.matrix_fingerprint,problem_fingerprint=p.fingerprint,distance_units='map_units',
-        execution={'status':'completed'},drivers=[DriverRouteResponse(driver_id=0,route=[0,1,0],distance=0),
+        execution={'status':'completed','termination':'historical_baseline_complete'},drivers=[DriverRouteResponse(driver_id=0,route=[0,1,0],distance=0),
                                                 DriverRouteResponse(driver_id=1,route=[0,0],distance=0)])
     assert verified(p,row.model_copy(update=change))== (not bool(change))
 
@@ -97,7 +97,7 @@ def test_zero_matrix_endpoint_reports_valid_tie_without_dividing_by_zero(monkeyp
     row=RoutingResultResponse(instance_id='zero',method='nearest_neighbor',feasible=True,
         total_distance=0,longest_route_distance=0,computation_time=0,
         matrix_fingerprint=p.matrix_fingerprint,problem_fingerprint=p.fingerprint,distance_units='map_units',
-        execution={'status':'completed'},drivers=[DriverRouteResponse(driver_id=0,route=[0,1,0],distance=0)])
+        execution={'status':'completed','termination':'historical_baseline_complete'},drivers=[DriverRouteResponse(driver_id=0,route=[0,1,0],distance=0)])
     monkeypatch.setattr(results,'instance_store',{'zero':{'problem':p,'response':SimpleNamespace(num_stops=1,num_drivers=1)}})
     monkeypatch.setattr(results,'routing_results',{('zero','nearest_neighbor'):row,('zero','2opt'):row.model_copy(update={'method':'2opt'})})
     response=asyncio.run(results.get_comparison('zero'))

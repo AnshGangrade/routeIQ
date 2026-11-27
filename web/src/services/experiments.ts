@@ -1,5 +1,14 @@
 import type { StrategyExperiment, StrategyRecord } from '../types/api';
 
+export function trustedSeedComparison(state:StrategyExperiment, winner:StrategyRecord) {
+  const c=state.seed_comparison;
+  if(!c || !c.verified || c.winner_id!==winner.strategy_id || !completedCandidate(winner) ||
+      c.cases!==winner.fitness.expected_cases || c.distance_units!=='map_units' || c.winner_mean!==winner.fitness.mean_distance ||
+      ![c.seed_mean,c.winner_mean].every(n=>Number.isFinite(n)&&n>=0) || c.difference!==c.seed_mean-c.winner_mean ||
+      c.percentage!==(c.seed_mean ? c.difference/c.seed_mean*100 : null)) return null;
+  return c;
+}
+
 export function completedCandidate(record: StrategyRecord) {
   const f=record.fitness;
   return f.eligible && f.expected_cases>0 && f.completed===f.expected_cases &&
@@ -10,7 +19,7 @@ export function candidateRecommendation(state: StrategyExperiment) {
     r.fitness.mean_distance != null && Number.isFinite(r.fitness.mean_distance) && r.fitness.mean_distance>=0);
   const completed=eligible.filter(completedCandidate).filter(r=>state.manifest?.config.proposal_policy!=='llm_only' ||
     r.creation_method==='llm' && experimentEvidence(state,r.strategy_id).winnerLLM);
-  return completed.sort((a,b)=>a.fitness.mean_distance!-b.fitness.mean_distance! || a.strategy_id.localeCompare(b.strategy_id))[0] || null;
+  return completed.sort((a,b)=>a.fitness.mean_distance!-b.fitness.mean_distance! || (a.configuration_fingerprint||a.strategy_id).localeCompare(b.configuration_fingerprint||b.strategy_id))[0] || null;
 }
 
 export type ProviderCheck = {

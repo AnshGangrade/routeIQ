@@ -92,16 +92,16 @@ test('optimization and strategy service calls preserve scoped identifiers and bu
 
 test('comparison excludes mismatched matrices while labeling incomplete valid plans', () => {
   const comparison={instance_id:'plan',matrix_fingerprint:'matrix',problem_fingerprint:'problem',comparisons:[
-    {...result,method:'nearest_neighbor',total_distance:10,execution:{status:'completed'}},
-    {...result,execution:{status:'incomplete',termination:'operation_budget',operations:100,budget_exhausted:true}},
+    {...result,method:'nearest_neighbor',total_distance:10,longest_route_distance:6,drivers:result.drivers.map((d,i)=>({...d,distance:i?4:6})),server_verified:true,execution:{status:'completed',termination:'historical_baseline_complete'}},
+    {...result,server_verified:true,execution:{status:'incomplete',termination:'operation_budget',operations:100,budget_exhausted:true}},
     {...result,method:'portfolio',matrix_fingerprint:'other',total_distance:1}]};
   const html=renderToStaticMarkup(React.createElement(CompareScreen,{instance,comparison}));
-  assert.match(html,/20.0% longer/); assert.match(html,/incomplete/); assert.match(html,/budget exhausted/);
-  assert.match(html,/mismatched results were excluded/); assert.doesNotMatch(html,/90.0% shorter/);
+  assert.doesNotMatch(html.split('<details')[0],/12.00|20.0% longer/);assert.match(html,/12.00 map units/); assert.match(html,/incomplete/); assert.match(html,/budget exhausted/);
+  assert.match(html,/Unverified or mismatched records/); assert.doesNotMatch(html,/90.0% shorter/);
 });
 
 test('execution details distinguish retained and raw distances with honest budget status', () => {
-  const html=renderToStaticMarkup(React.createElement(OptimizationDetails,{mode:'synthetic',result:{...result,execution:{status:'incomplete',termination:'operation_budget',initial_distance:12,final_distance:12,improvement_percent:0,operations:0,operation_limit:0,budget_exhausted:true,accepted_moves:0,operator_calls:0,ils_iterations:0,constructors:[],raw_events:[{stage:'test',method:'candidate',status:'rejected',raw_distance:20,retained_distance:12,accepted:false}]}}}));
+  const html=renderToStaticMarkup(React.createElement(OptimizationDetails,{mode:'synthetic',result:{...result,server_verified:true,execution:{status:'incomplete',termination:'operation_budget',initial_distance:12,final_distance:12,improvement_percent:0,operations:0,operation_limit:0,budget_exhausted:true,accepted_moves:0,operator_calls:0,ils_iterations:0,constructors:[],raw_events:[{stage:'test',method:'candidate',status:'rejected',raw_distance:20,retained_distance:12,accepted:false}]}}}));
   assert.match(html,/incomplete/i); assert.match(html,/20.00 map units/); assert.match(html,/12.00 map units/);
   assert.match(html,/constructor/i); assert.doesNotMatch(html,/66.7%/);
 });

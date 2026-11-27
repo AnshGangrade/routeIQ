@@ -20,7 +20,13 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg className="ui-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]} /></svg>;
 }
 export function BrandMark() {
-  return <svg width="42" height="42" viewBox="0 0 44 44" fill="none" aria-hidden="true"><path d="M4 32C13 14 21 35 38 21M5 39c12-13 25-4 34-14" stroke="#D9B65A" strokeWidth="2" strokeLinecap="round"/><path d="M22 4a8 8 0 0 0-8 8c0 6 8 14 8 14s8-8 8-14a8 8 0 0 0-8-8Z" fill="#D9B65A"/><circle cx="22" cy="12" r="3" fill="#F6F5F0"/></svg>;
+  return <svg className="brand-mark" width="36" height="36" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect width="40" height="40" rx="12" fill="currentColor"/><path d="M12 29V11h13l5 6-5 6H12m9 0 9 7" stroke="var(--color-on-primary)" strokeWidth="3" strokeLinejoin="round"/><g fill="var(--color-on-primary)"><circle cx="12" cy="11" r="3"/><circle cx="12" cy="29" r="3"/><circle cx="30" cy="30" r="3"/></g></svg>;
+}
+export function PageHeading({eyebrow,title,description,action}:{eyebrow:string;title:string;description:string;action?:ReactNode}) {
+  return <div className="page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{action}</div>;
+}
+export function EmptyState({title,description}:{title:string;description:string}) {
+  return <div className="panel empty-state"><span className="empty-symbol"><Icon name="route" size={28}/></span><h2>{title}</h2><p>{description}</p></div>;
 }
 export function Tip({ text }: { text: string }) {
   return <span className="tooltip"><button type="button" className="tip-trigger" aria-label={text}><Icon name="info" size={15} /></button><span role="tooltip">{text}</span></span>;

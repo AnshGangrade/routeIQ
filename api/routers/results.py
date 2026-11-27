@@ -26,9 +26,20 @@ def verified(problem, result):
         if [d.driver_id for d in drivers] != list(range(problem.num_drivers)): return False
         measured=validate_fleet_solution(problem,[d.route for d in drivers])
         return (math.isclose(measured.total_distance,result.total_distance,rel_tol=1e-9,abs_tol=1e-9)
+                and math.isclose(measured.longest_route_distance,result.longest_route_distance,rel_tol=1e-9,abs_tol=1e-9)
                 and all(math.isclose(a,b.distance,rel_tol=1e-9,abs_tol=1e-9) for a,b in zip(measured.route_distances,drivers)))
     except (ValueError,TypeError,KeyError):
         return False
+
+
+def completed(problem, result):
+    from engine.routing.status import COMPLETE_REASONS
+    execution=getattr(result,'execution',None) or {}
+    return (verified(problem,result) and execution.get('status')=='completed'
+        and execution.get('termination') in COMPLETE_REASONS | {'historical_baseline_complete'}
+        and execution.get('search_status','completed')=='completed'
+        and execution.get('schedule_completed',True) is True
+        and not execution.get('budget_exhausted') and not execution.get('neighborhoods_truncated'))
 
 
 @router.get("/{instance_id}/comparison", response_model=ComparisonResponse)
@@ -53,18 +64,15 @@ async def get_comparison(instance_id: str):
         if key in routing_results:
             result = routing_results[key]
             problem = stored.get("problem")
-            if problem is not None and (
-                    getattr(result, "problem_fingerprint", None) not in (None, problem.fingerprint)
-                    or getattr(result, "matrix_fingerprint", None) not in (None, problem.matrix_fingerprint)):
-                raise HTTPException(409, "Cached routes do not match the selected problem matrix; recalculate")
+            # Retain mismatches as diagnostic evidence; never authorize them for selection.
             
             # Track NN distance for improvement calculation
-            if method == "nearest_neighbor" and verified(problem,result):
+            if method == "nearest_neighbor" and completed(problem,result):
                 nn_distance = result.total_distance
             
             # Calculate improvement if NN result exists
             improvement = None
-            if nn_distance is not None and method != "nearest_neighbor" and verified(problem,result):
+            if nn_distance is not None and method != "nearest_neighbor" and completed(problem,result):
                 if nn_distance > 0:
                     improvement = ((nn_distance - result.total_distance) / nn_distance) * 100
                 elif result.total_distance == 0:
@@ -82,6 +90,7 @@ async def get_comparison(instance_id: str):
                     matrix_fingerprint=getattr(result, "matrix_fingerprint", None),
                     distance_units=getattr(result, "distance_units", None),
                     feasible=getattr(result, "feasible", None),
+                    server_verified=verified(problem,result),
                     drivers=getattr(result, "drivers", []),
                     execution=getattr(result, "execution", None),
                 )

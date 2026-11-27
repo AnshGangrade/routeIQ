@@ -8,10 +8,10 @@ export function validateCompletedResult(instance: InstanceResponse, result: Rout
   if (result.feasible!==true || !instance.problem_fingerprint || !instance.matrix_fingerprint ||
       result.distance_units!==instance.distance_units || !e || e.status!=='completed' ||
       !['local_search_complete','no_perturbation_available','ils_iteration_limit','historical_baseline_complete'].includes(e.termination||'') ||
-      e.budget_exhausted || e.neighborhoods_truncated || e.search_status && e.search_status!=='completed')
+      e.schedule_completed===false || e.budget_exhausted || e.neighborhoods_truncated || e.search_status && e.search_status!=='completed')
     throw new Error('No completed validated search was returned. Previous routes were retained.');
   const sum=result.drivers.reduce((n,d)=>n+d.distance,0), longest=Math.max(...result.drivers.map(d=>d.distance));
-  if (Math.abs(sum-result.total_distance)>1e-8*Math.max(1,sum) || Math.abs(longest-result.longest_route_distance)>1e-8*Math.max(1,longest))
+  if (!Number.isFinite(result.longest_route_distance) || result.longest_route_distance<0 || !Number.isFinite(sum) || Math.abs(sum-result.total_distance)>1e-8*Math.max(1,sum) || Math.abs(longest-result.longest_route_distance)>1e-8*Math.max(1,longest))
     throw new Error('Route metrics failed validation. Previous routes were retained.');
 }
 

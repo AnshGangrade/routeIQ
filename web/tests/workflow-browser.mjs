@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 process.chdir(root);
-const output = path.resolve(root, `../runs/workflow-completion-20261127/workflow-browser-${Date.now()}`);
+const output = path.resolve(root, `../runs/milestone11-20261128/workflow-browser-${Date.now()}`);
 mkdirSync(output, { recursive: true });
 const profile = mkdtempSync(path.join(output, 'browser-'));
 const executable = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe'].find(existsSync);
@@ -80,7 +80,7 @@ function apiResponse(url, request) {
   if(pathname.startsWith('/api/optimization/jobs/'))return [200,optimizationJobs.get(pathname.split('/')[4])];
   if (pathname.endsWith('/comparison')) {
     const id = pathname.split('/')[3], instance = instances.get(id);
-    return [200, { instance_id: id, problem_fingerprint:instance.problem_fingerprint,matrix_fingerprint:instance.matrix_fingerprint,num_stops: instance.num_stops, num_drivers: instance.num_drivers, comparisons: [...routes.values()].filter(r => r.instance_id === id) }];
+    return [200, { instance_id: id, problem_fingerprint:instance.problem_fingerprint,matrix_fingerprint:instance.matrix_fingerprint,num_stops: instance.num_stops, num_drivers: instance.num_drivers, comparisons: [...routes.values()].filter(r => r.instance_id === id).map(r=>({...r,server_verified:true})) }];
   }
   if (pathname === '/api/evolution/runs') {
     const run_id = `run-${++runNumber}`;
@@ -163,14 +163,34 @@ try {
     const selector = await evaluate(`(() => { const label = [...document.querySelectorAll('label')].find(e => e.firstChild?.textContent.trim() === ${JSON.stringify(text)}); const el = label?.querySelector('input,select'); if (!el) throw new Error('Missing label: '+${JSON.stringify(text)}); el.setAttribute('data-fill', 'target'); return '[data-fill="target"]'; })()`);
     await fill(selector, value); await evaluate(`document.querySelector('[data-fill="target"]').removeAttribute('data-fill')`);
   };
-  const screenshot = async name => { await delay(200); const { data } = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); writeFileSync(path.join(output, name + '.png'), Buffer.from(data, 'base64')); };
+  const screenshot = async name => {
+    const previous=await evaluate('[innerWidth,innerHeight]');
+    const viewports=[[1440,900],[1280,800],[768,1024],[390,844]];
+    for(const [width,height] of viewports) {
+      await send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:false});await delay(180);
+      assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,`${name} overflow at ${width}`);
+      assert.equal(await evaluate('document.querySelector("nav").scrollWidth<=document.querySelector("nav").clientWidth'),true,`${name} navigation overflow at ${width}`);
+      const {data}=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+      writeFileSync(path.join(output,`${name}-${width}.png`),Buffer.from(data,'base64'));
+    }
+    await send('Emulation.setDeviceMetricsOverride',{width:previous[0],height:previous[1],deviceScaleFactor:1,mobile:false});await delay(100);
+  };
   const check = name => { checks.push(name); console.log('PASS ' + name); };
   await send('Page.navigate', { url: base });
-  await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
+  await waitFor(`!!document.querySelector('.home')`);
   // A cold Vite dependency pre-bundle can reload after the first render.
-  await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`document.querySelector('h1')?.textContent.includes('RouteIQ')`);
+  await delay(1500); await evaluate('document.fonts.ready'); await waitFor(`!!document.querySelector('.home')`);
   assert.equal(await evaluate(`!!document.querySelector('input')`), false);
   await screenshot('01-home-desktop'); check('Home offers one clear starting action without configuration');
+  await evaluate(`document.querySelector('.skip-link').focus()`);
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  assert.equal(await evaluate(`document.activeElement.id==='main-content'`),true);
+  await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.button')).transitionDuration`),'0s');
+  await send('Emulation.setEmulatedMedia',{features:[]});
+  check('Keyboard skip navigation and reduced-motion preferences work');
+
   await click('Create route plan'); await waitFor(`!!document.querySelector('.planning-workspace')`);
   await fill(labelInput('Delivery stops'), 7); await click('Reproducibility options', 'summary'); await fillLabel('Random seed', 0);  await fillLabel('Number of drivers', 3);
   await click('Home', 'nav a'); await click('Route Plan', 'nav a');
@@ -195,6 +215,12 @@ try {
   assert.equal(await evaluate(`document.querySelectorAll('.driver-itinerary').length`), 1);
   assert.equal(await evaluate(`document.querySelector('.map-panel button[aria-pressed=true]')?.textContent.trim()`), 'Driver 1');
   await screenshot('03-routes-desktop'); check('Driver selection synchronizes the map and itinerary');
+  await evaluate(`document.querySelector('svg [aria-label="Delivery stop 1"]').focus()`);
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Enter',code:'Enter',windowsVirtualKeyCode:13});
+  assert.equal(await evaluate(`document.querySelector('svg [aria-label="Delivery stop 1"]').getAttribute('aria-pressed')`),'true');
+  check('Synthetic map stops support keyboard selection');
+
   await click('Compare', 'nav a'); await waitFor(`document.querySelector('.comparison-grid')?.textContent.includes('20.0% shorter')`);
   assert.equal(await evaluate(`!!document.querySelector('.stepper') || !!document.querySelector('.driver-panel')?.getBoundingClientRect().height`), false);
   await screenshot('04-comparison'); check('Compare is separate and shows only measured same-plan results');

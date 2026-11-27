@@ -91,3 +91,26 @@ test('only complete validated strategy applications can replace the current resu
   assert.throws(()=>completedOptimizationResult(instance,{...job,result:{...result,...change}}));
  assert.equal(completedOptimizationResult(instance,{...job,published:false}),null);
 });
+
+
+test('trusted seed comparison requires verified same-panel evidence with honest loss, tie and zero arithmetic',()=>{
+ const {trustedSeedComparison}=require('../src/services/experiments.ts');
+ const winner={...record('llm'),strategy_id:'w'};
+ for(const seed_mean of [0,5,10,20]) {
+   const c={verified:true,winner_id:'w',seed_id:'seed',winner_mean:10,seed_mean,difference:seed_mean-10,
+     percentage:seed_mean?(seed_mean-10)/seed_mean*100:null,cases:2,distance_units:'map_units'};
+   assert.deepEqual(trustedSeedComparison({seed_comparison:c},winner),c);
+   for(const patch of [{verified:false},{winner_id:'other'},{cases:1},{winner_mean:9},{seed_mean:NaN},{difference:999},{percentage:999},{distance_units:'meters'}])
+     assert.equal(trustedSeedComparison({seed_comparison:{...c,...patch}},winner),null);
+   assert.equal(trustedSeedComparison({seed_comparison:c},{...winner,fitness:{...winner.fitness,incomplete:1}}),null);
+ }
+ assert.equal(trustedSeedComparison({},winner),null);
+});
+
+
+test('equal-score recommendations use the engine configuration-fingerprint tie break',()=>{
+ const {candidateRecommendation}=require('../src/services/experiments.ts');
+ const a={...record('seed'),strategy_id:'a',configuration_fingerprint:'fff'};
+ const b={...record('seed'),strategy_id:'b',configuration_fingerprint:'000'};
+ assert.equal(candidateRecommendation({records:{a,b}}).strategy_id,'b');
+});

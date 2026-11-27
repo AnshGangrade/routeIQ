@@ -1,14 +1,14 @@
 import { api } from './api';
 import { validateRouteResult, watchTask, activeStatus } from './product';
+import { completedMeasurement } from './routeEvidence';
 import type { InstanceResponse, RoutingResultResponse, MethodComparison } from '../types/api';
 
 export const comparisonMethods = ['nearest_neighbor', '2opt', 'portfolio'] as const;
 export const comparisonBudget = { operations:100000, seconds:10, search_seed:0 };
 export interface ComparisonProgress { status:string; stage:string; errors:string[]; }
-export function recommendedResult(rows:MethodComparison[]) {
-  const valid=rows.filter(r=>r.feasible===true && Number.isFinite(r.total_distance) && r.total_distance>=0 && ['completed','incomplete'].includes(r.execution?.status||''));
-  const completed=valid.filter(r=>r.execution?.status==='completed');
-  return (completed.length?completed:valid).reduce<MethodComparison|null>((best,r)=>!best||r.total_distance<best.total_distance?r:best,null);
+export function recommendedResult(rows:MethodComparison[], instance?:InstanceResponse) {
+  const completed=instance ? rows.filter(r=>completedMeasurement(instance,r)) : [];
+  return completed.reduce<MethodComparison|null>((best,r)=>!best||r.total_distance<best.total_distance?r:best,null);
 }
 /** One scoped run, using the existing endpoints and their independent validators. */
 export class ComparisonRun {
@@ -49,8 +49,9 @@ export class ComparisonRun {
         } else row=await this.client.solveRouting({instance_id:this.instance.instance_id,method});
         validateRouteResult(this.instance,row);
         if(row.method!==method || row.execution?.status==='failed') throw new Error('Invalid comparison method or failed evaluation.');
-        if(!this.cancelled) {this.result(row);successful++;}
-        incomplete ||= row.execution?.status==='incomplete';
+        if(row.execution?.status==='incomplete') incomplete=true;
+        else if(!completedMeasurement(this.instance,row)) throw new Error('Comparison did not return completed, verified measurements.');
+        else if(!this.cancelled) {this.result(row);successful++;}
       } catch(e) { errors.push(`${method}: ${e instanceof Error?e.message:'Calculation failed'}`); }
     }
     this.progress({status:this.cancelled?'cancelled':!successful?'failed':errors.length||incomplete?'incomplete':'completed',stage:this.cancelled?'Comparison cancelled; prior routes retained.':errors.length?'Some methods failed. Retry comparison or inspect diagnostics.':incomplete?'Comparison returned valid routes; improved search stopped early.':'Comparison complete.',errors});

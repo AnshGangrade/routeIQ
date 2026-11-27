@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CompareScreen } from './components/CompareScreen';
 import { StrategyLab } from './components/StrategyLab';
 import { defaultBudget } from './components/OptimizationControls';
-import { activeStatus, validateRouteResult, watchTask, completedOptimizationResult } from './services/product';
+import { activeStatus, watchTask, completedOptimizationResult, validateCompletedResult } from './services/product';
 import { api } from './services/api';
 import { generatePlan, initialPlan, methodNames, viewFromHash } from './services/workflow';
 import type { Method, View } from './services/workflow';
@@ -141,7 +141,7 @@ function App() {
     if (!instance || draftChanged) throw new Error('Generate the current draft before calculating routes.');
     if (optimizing) throw new Error('Finish or cancel the current optimization first.');
     const result = await api.solveRouting({ instance_id: instance.instance_id, method: selected as 'nearest_neighbor' | '2opt' });
-    validateRouteResult(instance, result);
+    validateCompletedResult(instance, result);
     if (result.instance_id !== instanceRef.current || result.method !== selected) throw new Error('The returned route does not match the selected plan. Please retry.');
     setResults(previous => new Map(previous).set(selected, result)); setMethod(selected); setDriver(null);
     navigate('routes');
@@ -152,13 +152,13 @@ function App() {
     <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); main.current?.focus(); }}>Skip to content</a>
     <header className="app-header"><a href="#home" className="brand" aria-label="RouteIQ home"><BrandMark /><span>Route<span className="brand-iq">IQ</span></span></a><nav aria-label="Main navigation">
       {([['home', 'Home'], ['routes', 'Route Plan'], ['compare', 'Compare'], ['lab', 'Evolution']] as [View, string][]).map(([target, title]) => <a key={title} title={title} href={`#${target}`} aria-current={view === target || title === 'Route Plan' && view === 'setup' ? 'page' : undefined}><Icon name={title === "Home" ? "home" : title === "Route Plan" ? "map" : title === "Compare" ? "compare" : "lab"} size={17}/><span>{title}</span>{title === 'Evolution' && strategyStatus && <span className="live-dot" aria-label="Experiment running" />}</a>)}
-    </nav></header>
-    <div className="context-bar"><span>{instance ? `${draftChanged ? 'Saved ' : ''}${instance.mode === 'road' ? 'Road' : 'Demo'} plan · ${instance.num_stops} stops · ${instance.num_drivers} drivers` : (view === 'setup' || view === 'routes') ? 'Draft plan' : 'No plan selected'}</span>{instance && <span className="instance-id" title={instance.instance_id}>Plan {instance.instance_id.slice(-8)}</span>}{comparing && <a href="#compare">Route comparison / {comparisonProgress?.status}</a>}{optimizing && <a href="#routes">Optimization · {optimization?.status}</a>}{strategyStatus && <a href="#lab">Strategy experiment · {strategyStatus}</a>}</div>
+    </nav>
+    <div className="context-bar"><span>{instance ? `${draftChanged ? 'Saved ' : ''}${instance.mode === 'road' ? 'Road' : 'Demo'} plan · ${instance.num_stops} stops · ${instance.num_drivers} drivers` : (view === 'setup' || view === 'routes') ? 'Draft plan' : 'No plan selected'}</span>{instance && <span className="instance-id" title={instance.instance_id}>Plan {instance.instance_id.slice(-8)}</span>}{comparing && <a href="#compare">Route comparison / {comparisonProgress?.status}</a>}{optimizing && <a href="#routes">Optimization · {optimization?.status}</a>}{strategyStatus && <a href="#lab">Strategy experiment · {strategyStatus}</a>}</div></header>
     <main id="main-content" ref={main} tabIndex={-1} className="app-main">
       {busy && <p role="status" className="notice busy">{busy} Your settings are preserved.</p>}
       {error && <div className="notice error" role="alert"><p>{error}</p><button className="text-button" onClick={() => setError(null)}>Dismiss message</button></div>}
       {draftChanged && view !== 'routes' && view !== 'setup' && <p className="notice" role="status">You have unapplied setup changes. Displayed results still belong to the saved plan. <a className="text-button" href="#setup">Review and generate a new plan</a></p>}
-      {view === 'home' && <Home hasInstance={!!instance} />}
+      {view === 'home' && <Home hasInstance={!!instance} instance={instance} stale={draftChanged} />}
       {planVisited && <div className="planning-host" hidden={view!=='setup'&&view!=='routes'}><PlanningWorkspace draft={draft} setDraft={setDraft} instance={instance} result={currentResult} results={results} stale={draftChanged} busy={busyNow} method={method} onMethod={value=>{setMethod(value);setDriver(null);}} driver={driver} onDriver={setDriver} onGenerate={create} onRun={solve} budget={budget} setBudget={setBudget} job={optimization} optimizationError={optimizationError} onCancel={cancelOptimization}/></div>}
       {view === 'compare' && (instance && !draftChanged ? <CompareScreen onCompare={runComparison} onCancelComparison={cancelComparison} progress={comparisonProgress} instance={instance} comparison={comparison} loading={comparisonLoading} error={comparisonError} busy={busyNow} evolution={null} appliedRunId={null} onRetry={() => setRefresh(value => value + 1)} onRun={solve} onView={value => { if (results.has(value)) { setMethod(value); setDriver(null); navigate('routes'); } else void solve(value); }} /> : emptyPlan)}
       {labVisited && <div hidden={view !== 'lab'}><StrategyLab hasInstance={!!instance && !draftChanged} applying={busyNow} onApply={(job, candidate) => optimize('strategy', job, candidate)} onStatus={setStrategyStatus} /></div>}

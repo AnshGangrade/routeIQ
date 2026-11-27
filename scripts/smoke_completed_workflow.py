@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import dotenv
 import httpx
 import uvicorn
+import numpy as np
 
 
 def forbidden(*args, **kwargs):
@@ -24,12 +25,14 @@ httpx.AsyncHTTPTransport.handle_async_request = forbidden
 
 from api.main import app
 from api import storage
-from api.routers import strategies, optimization
+from api.routers import strategies, optimization, routing
+import engine.road
+from engine.road.models import RoadDistanceResult
 from engine.strategies.provider import OllamaProvider
 from engine.routing.validation import validate_fleet_solution
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = ROOT / 'runs' / 'workflow-completion-20261127' / ('browser-' + str(time.time_ns()))
+OUTPUT = ROOT / 'runs' / 'milestone11-20261128' / ('browser-' + str(time.time_ns()))
 OUTPUT.mkdir(parents=True, exist_ok=False)
 strategies.ROOT = OUTPUT / 'strategies'
 strategies.check_provider = lambda config: dict(status='available', configured=True,
@@ -49,6 +52,27 @@ def fixture_provider(config):
 
 
 strategies.OllamaProvider = fixture_provider
+
+
+def matrix_fixture(coordinates):
+    n=len(coordinates)
+    matrix=np.array([[0. if i==j else float(100+17*i+31*j) for j in range(n)] for i in range(n)])
+    return matrix, RoadDistanceResult(provider='osrm',distances=matrix.tolist(),metadata={'fixture':True})
+
+
+def geometry_fixture(stored,route):
+    if stored['mode']!='road': return None,None,None
+    coordinates=[stored['depot_coords'],*stored['stop_coords']]
+    points=[]
+    for a,b in zip(route,route[1:]):
+        x,y=coordinates[a],coordinates[b]
+        points.extend([[x[1],x[0]],[(x[1]+y[1])/2+.001,(x[0]+y[0])/2-.001]])
+    points.append([coordinates[route[-1]][1],coordinates[route[-1]][0]])
+    return points,120.,None
+
+
+engine.road.create_road_distance_matrix=matrix_fixture
+routing.get_route_geometry_if_road=geometry_fixture
 
 
 def main():
